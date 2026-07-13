@@ -1,65 +1,85 @@
-# Guia de deploy no Render — Camdas.Api na nuvem
+# Guia de deploy: Render (Api) + Supabase (banco + arquivos)
 
-Coloca a `Camdas.Api` (e o banco Postgres) online, acessível de qualquer rede — resolve o problema
-de precisar estar na mesma Wi-Fi do servidor pra usar o app/celular/tablet. Usa só o Render (banco +
-Api no mesmo lugar); veja `GUIA_DEPLOY_INTRANET.md` se preferir manter tudo dentro da empresa.
+Coloca a `Camdas.Api` online, acessível de qualquer rede — resolve o problema de precisar estar na
+mesma Wi-Fi do servidor pra usar o app/celular/tablet. Banco de dados e armazenamento de arquivos
+ficam no Supabase (Postgres gerenciado + Storage compatível com S3); a Api roda no Render. Veja
+`GUIA_DEPLOY_INTRANET.md` se preferir manter tudo dentro da empresa em vez da nuvem.
 
-O repositório já tem os dois arquivos que o Render precisa:
-- `render.yaml` (raiz) — descreve o banco + a Api pro Render criar os dois de uma vez ("Blueprint").
-- `src/Camdas.Api/Dockerfile` — como buildar a Api dentro de um contêiner.
+O repositório já tem os arquivos que o Render precisa — `render.yaml` (raiz) e
+`src/Camdas.Api/Dockerfile`. As duas partes de cadastro (Supabase e Render) só você consegue fazer,
+são login por navegador.
 
-## Passo a passo (a parte de cadastro só você consegue fazer — é login por navegador)
+## Passo 1 — Criar o projeto no Supabase
+
+1. Acesse **https://supabase.com/dashboard** e cadastre-se (dá pra usar a conta do GitHub também).
+2. **New project** → escolha um nome (ex.: `camdas`) e uma senha forte pro banco — **guarde essa
+   senha**, você vai precisar dela no passo 3.
+3. Espera o projeto provisionar (~2 minutos).
+
+## Passo 2 — Criar o bucket de armazenamento
+
+1. No menu lateral do projeto, vá em **Storage**.
+2. **New bucket** → nome `plantas` → pode deixar **privado** (não marque "Public bucket" — a Api
+   sempre acessa via credencial, não precisa de acesso público direto ao arquivo).
+3. Ainda em Storage, clique em **Settings** (ou "S3 Connection", dependendo da versão da UI) e
+   anote três coisas:
+   - **Endpoint URL** (algo como `https://<id-do-projeto>.supabase.co/storage/v1/s3`)
+   - **Access Key ID**
+   - **Secret Access Key** (só aparece uma vez na criação — se perder, gera uma nova credencial ali
+     mesmo)
+
+## Passo 3 — Pegar a connection string do banco
+
+1. **Project Settings** (ícone de engrenagem) → **Database**.
+2. Em **Connection string**, escolha a aba **URI** e copie o valor — algo como
+   `postgresql://postgres.xxxx:[YOUR-PASSWORD]@aws-0-xxxx.pooler.supabase.com:5432/postgres`.
+3. Substitua `[YOUR-PASSWORD]` pela senha que você criou no passo 1.
+
+## Passo 4 — Criar o serviço no Render
 
 1. Acesse **https://dashboard.render.com/register** e cadastre-se **com sua conta do GitHub**
-   (`samuelmiguel9`) — assim o Render já enxerga o repositório `camdas` direto, sem precisar
-   configurar nada de acesso depois.
-2. No painel, clique em **New +** → **Blueprint**.
-3. Selecione o repositório **`samuelmiguel9/camdas`** e a branch `master`.
-4. O Render lê o `render.yaml` sozinho e mostra um preview com dois recursos: o banco `camdas-db` e
-   o serviço web `camdas-api`. Confirme em **Apply**.
-5. Espera o primeiro deploy (a primeira vez demora mais — ele builda a imagem Docker do zero,
-   geralmente uns 5-10 minutos). Acompanha o log ali mesmo no painel.
-6. Quando terminar, o Render mostra a URL pública da Api, algo como
-   `https://camdas-api.onrender.com`. **Me manda essa URL** que eu atualizo:
-   - `ConfiguracaoApi`/endereço padrão do app Android, pra ele já vir configurado com essa URL
-     (sem precisar digitar IP na primeira tela toda vez).
-   - `src/Camdas.Web/wwwroot/appsettings.json` (`ApiBaseUrl`), pro visualizador Web apontar pra lá.
+   (`samuelmiguel9`) — assim o Render já enxerga o repositório `camdas`.
+2. **New +** → **Blueprint** → selecione o repositório `samuelmiguel9/camdas`, branch `master`.
+3. O Render lê o `render.yaml` e mostra o preview do serviço `camdas-api`. Confirme em **Apply**.
+4. O primeiro deploy vai **falhar ou ficar incompleto** — normal, faltam as variáveis que só você
+   tem (do Supabase). Depois do Apply, vá em **camdas-api → Environment** e preencha:
 
-## O que verificar se o deploy falhar
+   | Variável | Valor |
+   |---|---|
+   | `ConnectionStrings__Camdas` | a connection string do Passo 3 (já com a senha) |
+   | `ArmazenamentoArquivos__S3__EndpointUrl` | Endpoint URL do Passo 2 |
+   | `ArmazenamentoArquivos__S3__Bucket` | `plantas` |
+   | `ArmazenamentoArquivos__S3__AccessKey` | Access Key ID do Passo 2 |
+   | `ArmazenamentoArquivos__S3__SecretKey` | Secret Access Key do Passo 2 |
 
-- **Erro de conexão com o banco** ("could not connect", "SSL required"): abra a env var
-  `ConnectionStrings__Camdas` do serviço `camdas-api` no painel do Render e confirme que ela foi
-  preenchida automaticamente (vem do banco via `fromDatabase` no `render.yaml`). Se precisar forçar
-  SSL, adicione `;SSL Mode=Require;Trust Server Certificate=true` no final do valor.
-- **Build falha por falta de memória**: o plano free do Render tem RAM limitada pro build — se
-  acontecer, tenta de novo (às vezes é só uma instabilidade momentânea do runner).
-- **App sobe mas todo request devolve 500**: veja os logs do serviço no painel — a causa mais comum
-  seria `Jwt:Chave` vazia, mas o `render.yaml` já gera uma automaticamente
-  (`generateValue: true`), então não deveria acontecer.
+5. Salvar as variáveis já dispara um novo deploy automaticamente. Acompanha o log — na primeira
+   subida, a Api aplica as migrations sozinha no banco do Supabase (não precisa rodar `dotnet ef`
+   manualmente).
+6. Quando concluir, o Render mostra a URL pública, tipo `https://camdas-api.onrender.com`. **Me
+   manda essa URL** que eu atualizo o app Android e o `Camdas.Web` pra apontar pra lá.
 
-## Limitações importantes do plano free (leia antes de confiar 100% nele)
+## O que verificar se algo falhar
 
-- **O serviço "dorme" depois de ~15 minutos sem uso** e demora uns 30-60s pra acordar na próxima
-  chamada — o app pode parecer "travado" na primeira tentativa depois de um tempo parado. Normal do
-  plano gratuito; planos pagos não têm esse comportamento.
-- **Arquivos enviados (plantas/camadas) não persistem entre deploys/reinícios.** `ArquivoStorageEmDisco`
-  salva em `App_Data/plantas` dentro do contêiner — no Render (free), esse disco é *efêmero*: some
-  a cada novo deploy ou quando o serviço reinicia depois de dormir. Pra resolver de verdade, as
-  opções são: (a) um **Render Disk** (armazenamento persistente, precisa de plano pago), ou (b)
-  trocar `ArquivoStorageEmDisco` por um storage externo tipo **Cloudflare R2** ou **AWS S3**
-  (compatível com S3, tem camada free generosa) — isso exigiria uma implementação nova de
-  `IArquivoStorage`, não é automático. Enquanto isso não for feito, trate o Render free como
-  ambiente de teste/demonstração, não como armazenamento definitivo das plantas dos clientes.
-- **Banco Postgres free do Render expira depois de 90 dias** (política deles pra plano gratuito) —
-  se for usar por muito tempo, prepare-se pra migrar pro plano pago do banco antes disso ou fazer
-  backup e recriar.
+- **Erro de conexão com o banco**: confirme que substituiu `[YOUR-PASSWORD]` de verdade na
+  connection string, e que copiou a URI completa (não só o host).
+- **Erro de acesso ao Storage** ("Access Denied", "InvalidAccessKeyId"): confira se a Secret Key foi
+  colada certinha (ela só aparece uma vez — se não salvou, gere uma nova em Storage → Settings).
+- **App sobe mas todo request devolve 500**: veja os logs do serviço no painel do Render.
+
+## Limitações a saber
+
+- **O serviço do Render "dorme" depois de ~15 minutos sem uso** (plano free) e demora uns 30-60s
+  pra acordar na próxima chamada — normal, planos pagos não têm esse comportamento.
+- **Banco e Storage do Supabase (plano free)**: o projeto pausa automaticamente depois de ~1 semana
+  sem nenhuma atividade (basta acessar o painel ou a Api pra reativar) — diferente do Render, aqui
+  os dados **não são apagados**, só fica pausado até alguém acessar de novo.
+- Diferente do disco efêmero do Render, os arquivos no Supabase Storage **persistem normalmente**
+  entre deploys/reinícios da Api — esse era o problema do plano anterior (só Render), já resolvido.
 
 ## Depois que a Api estiver no ar
 
 Com a Api pública e em HTTPS (o Render já dá certificado automático — resolve, de quebra, o item
-"HTTPS interno" do `REVISAO_SEGURANCA.md`), o app Android **não precisa mais** de
-`usesCleartextTraffic="true"` nem do fluxo de "IP da rede" — passa a funcionar de qualquer lugar com
-internet. Ainda não removi essas partes do código porque, até você confirmar que o deploy no Render
-ficou estável, o app continua podendo apontar pro servidor local também (endereços múltiplos, ver
-`ResolvedorEnderecoApi`) — dá pra ter os dois configurados ao mesmo tempo (ex.: "Render" e "PC
-local") e trocar conforme a necessidade.
+"HTTPS interno" do `REVISAO_SEGURANCA.md`), o app Android **não precisa mais** de estar na mesma
+rede do servidor. Ainda não removi o fluxo de "IP da rede" do app porque, até você confirmar que o
+deploy ficou estável, dá pra ter os dois endereços salvos ao mesmo tempo (ex.: "Render" e "PC
+local") e trocar conforme a necessidade — ver `ResolvedorEnderecoApi`.

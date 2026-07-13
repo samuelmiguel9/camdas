@@ -1,4 +1,5 @@
 using System.Text;
+using Amazon.S3;
 using Camdas.Api.Auth;
 using Camdas.Api.Middleware;
 using Camdas.Application.Abstractions;
@@ -39,8 +40,29 @@ builder.Services.AddScoped<IHistoricoRepository, HistoricoRepositoryEfCore>();
 builder.Services.AddScoped<IUnitOfWork, UnitOfWorkEfCore>();
 builder.Services.AddScoped<IConversorPdfParaImagem, ConversorPdfParaImagemPdfium>();
 builder.Services.AddSingleton<IClock, RelogioSistema>();
-builder.Services.AddSingleton<IArquivoStorage>(_ =>
-    new ArquivoStorageEmDisco(builder.Configuration["ArmazenamentoArquivos:DiretorioRaiz"] ?? "App_Data/plantas"));
+
+// "S3" usa um bucket compatível com S3 (ex.: Supabase Storage, Cloudflare R2) — necessário em hosts
+// com disco efêmero (Render free, por exemplo), onde ArquivoStorageEmDisco perderia os arquivos a
+// cada deploy/reinício. Ver GUIA_DEPLOY_RENDER.md.
+if (string.Equals(builder.Configuration["ArmazenamentoArquivos:Tipo"], "S3", StringComparison.OrdinalIgnoreCase))
+{
+    builder.Services.AddSingleton<IAmazonS3>(_ => new AmazonS3Client(
+        builder.Configuration["ArmazenamentoArquivos:S3:AccessKey"],
+        builder.Configuration["ArmazenamentoArquivos:S3:SecretKey"],
+        new AmazonS3Config
+        {
+            ServiceURL = builder.Configuration["ArmazenamentoArquivos:S3:EndpointUrl"],
+            ForcePathStyle = true, // exigido por endpoints S3-compatíveis fora da AWS
+        }));
+    builder.Services.AddSingleton<IArquivoStorage>(provedor => new ArquivoStorageS3(
+        provedor.GetRequiredService<IAmazonS3>(),
+        builder.Configuration["ArmazenamentoArquivos:S3:Bucket"] ?? "plantas"));
+}
+else
+{
+    builder.Services.AddSingleton<IArquivoStorage>(_ =>
+        new ArquivoStorageEmDisco(builder.Configuration["ArmazenamentoArquivos:DiretorioRaiz"] ?? "App_Data/plantas"));
+}
 
 // --- Identidade do usuário autenticado (lida do JWT) ---
 builder.Services.AddHttpContextAccessor();

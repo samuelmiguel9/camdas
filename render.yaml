@@ -1,11 +1,7 @@
-# Blueprint do Render (https://render.com/docs/blueprint-spec) — cria a Api e o banco Postgres numa
-# tacada só. Ver GUIA_DEPLOY_RENDER.md para o passo a passo de uso.
-databases:
-  - name: camdas-db
-    plan: free
-    databaseName: camdas
-    user: camdas
-
+# Blueprint do Render (https://render.com/docs/blueprint-spec) — cria só a Api; o banco e o
+# armazenamento de arquivos ficam no Supabase (ver GUIA_DEPLOY_RENDER.md). As variáveis marcadas
+# `sync: false` precisam ser preenchidas manualmente no painel do Render depois do Apply — são
+# segredos que vêm do painel do Supabase, o Render não tem como gerar sozinho.
 services:
   - type: web
     name: camdas-api
@@ -26,6 +22,14 @@ services:
       - key: Jwt__ExpiracaoMinutos
         value: "480"
       - key: ConnectionStrings__Camdas
-        fromDatabase:
-          name: camdas-db
-          property: connectionString
+        sync: false
+      - key: ArmazenamentoArquivos__Tipo
+        value: S3
+      - key: ArmazenamentoArquivos__S3__EndpointUrl
+        sync: false
+      - key: ArmazenamentoArquivos__S3__Bucket
+        sync: false
+      - key: ArmazenamentoArquivos__S3__AccessKey
+        sync: false
+      - key: ArmazenamentoArquivos__S3__SecretKey
+        sync: false

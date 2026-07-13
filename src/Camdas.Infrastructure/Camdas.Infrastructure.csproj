@@ -16,6 +16,7 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
     <PackageReference Include="PDFtoImage" Version="5.2.1" />
+    <PackageReference Include="AWSSDK.S3" Version="3.7.405.7" />
   </ItemGroup>
 
   <ItemGroup>
