@@ -1,0 +1,46 @@
+@page "/"
+@using Camdas.Mobile.ViewModels
+@inject LoginViewModel ViewModel
+@inject NavigationManager Navegacao
+
+<PageTitle>Login — Camdas</PageTitle>
+
+<h1>Entrar</h1>
+
+<p>Informe o Id (Guid) do usuário cadastrado no banco. Ver README, seção "Testar o fluxo pelo Swagger", para criar um usuário e obter esse Id.</p>
+
+<div class="mb-3">
+    <label class="form-label" for="usuarioId">Id do usuário</label>
+    <input id="usuarioId" class="form-control" @bind="ViewModel.UsuarioId" placeholder="00000000-0000-0000-0000-000000000000" />
+</div>
+
+<button class="btn btn-primary" disabled="@ViewModel.EstaCarregando" @onclick="EntrarAsync">
+    @(ViewModel.EstaCarregando ? "Entrando..." : "Entrar")
+</button>
+
+@if (ViewModel.MensagemErro is not null)
+{
+    <p class="text-danger mt-3">@ViewModel.MensagemErro</p>
+}
+
+@implements IDisposable
+@code {
+    protected override void OnInitialized()
+    {
+        ViewModel.LoginRealizado += AoLogar;
+        ViewModel.PropertyChanged += AoPropriedadeMudar;
+    }
+
+    private void AoLogar(object? remetente, EventArgs args) => Navegacao.NavigateTo("projetos");
+
+    private void AoPropriedadeMudar(object? remetente, System.ComponentModel.PropertyChangedEventArgs args) =>
+        InvokeAsync(StateHasChanged);
+
+    private async Task EntrarAsync() => await ViewModel.EntrarCommand.ExecuteAsync(null);
+
+    public void Dispose()
+    {
+        ViewModel.LoginRealizado -= AoLogar;
+        ViewModel.PropertyChanged -= AoPropriedadeMudar;
+    }
+}

@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage
+    x:Class="Camdas.Mobile.Views.LoginPage"
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    xmlns:vm="clr-namespace:Camdas.Mobile.ViewModels;assembly=Camdas.Mobile.Core"
+    x:DataType="vm:LoginViewModel"
+    Title="Entrar">
+
+    <Grid RowDefinitions="*,Auto" Padding="24">
+        <VerticalStackLayout Grid.Row="0" Spacing="16" VerticalOptions="Center">
+            <Label Text="Camdas" FontSize="32" HorizontalOptions="Center" FontAttributes="Bold" />
+            <Label Text="Ratificação de projetos de planta baixa" HorizontalOptions="Center" />
+
+            <BoxView HeightRequest="1" Color="LightGray" Margin="0,16" />
+
+            <Label Text="Id do usuário (login provisório de desenvolvimento — sem senha)" />
+            <Entry Placeholder="00000000-0000-0000-0000-000000000000" Text="{Binding UsuarioId}" />
+
+            <Button Text="Entrar" Command="{Binding EntrarCommand}"
+                    IsEnabled="{Binding EstaCarregando, Converter={StaticResource InvertedBoolConverter}}" />
+
+            <ActivityIndicator IsRunning="{Binding EstaCarregando}" IsVisible="{Binding EstaCarregando}" />
+
+            <Label Text="{Binding MensagemErro}" TextColor="Red"
+                   IsVisible="{Binding MensagemErro, Converter={StaticResource StringNaoVazioParaBoolConverter}}" />
+        </VerticalStackLayout>
+
+        <Label Grid.Row="1" Text="developed by Samuel Miguel" HorizontalOptions="Center" TextColor="Gray" FontSize="12" Margin="0,16,0,0" />
+    </Grid>
+</ContentPage>

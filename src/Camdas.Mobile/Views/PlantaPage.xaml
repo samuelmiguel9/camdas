@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage
+    x:Class="Camdas.Mobile.Views.PlantaPage"
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    xmlns:vm="clr-namespace:Camdas.Mobile.ViewModels;assembly=Camdas.Mobile.Core"
+    xmlns:contracts="clr-namespace:Camdas.Contracts;assembly=Camdas.Contracts"
+    xmlns:views="clr-namespace:Camdas.Mobile.Views"
+    x:DataType="vm:PlantaViewModel"
+    Title="Planta">
+
+    <Grid Padding="8" RowDefinitions="Auto,Auto,7*,Auto,2*,Auto" RowSpacing="6">
+
+        <Button Grid.Row="0" Text="Histórico" Clicked="OnAbrirHistoricoClicked" HorizontalOptions="Start" />
+
+        <!-- Controle de zoom da visualização geral (só esta tela — a tela de desenho de camada
+             continua com o encaixe automático de sempre, ver comentário em PlantaCanvasView.Zoom). -->
+        <HorizontalStackLayout Grid.Row="1" Spacing="8">
+            <Label Text="Zoom" VerticalOptions="Center" />
+            <Button Text="−" WidthRequest="36" Clicked="OnDiminuirZoomClicked" />
+            <Slider x:Name="ZoomSlider" Minimum="0.25" Maximum="3" Value="1" WidthRequest="140"
+                    VerticalOptions="Center" ValueChanged="OnZoomSliderChanged" />
+            <Button Text="+" WidthRequest="36" Clicked="OnAumentarZoomClicked" />
+            <Label x:Name="ZoomLabel" Text="100%" VerticalOptions="Center" WidthRequest="48" />
+            <Button Text="Ajustar" Clicked="OnAjustarZoomClicked" />
+        </HorizontalStackLayout>
+
+        <!-- Só visualização: mostra a imagem da planta + o traço de cada camada visível, tudo
+             junto. O desenho em si acontece na tela isolada de cada camada (toque no nome abaixo).
+             ScrollView permite ver/percorrer a planta inteira quando o zoom deixa o conteúdo maior
+             que a tela; linha com peso 7* (contra 2* da lista de camadas) pra a planta não ficar
+             cortada. -->
+        <ScrollView Grid.Row="2" Orientation="Both">
+            <views:PlantaCanvasView
+                x:Name="Canvas"
+                Camadas="{Binding Camadas}"
+                ImagemBase="{Binding ImagemBase}"
+                ImagensPorCamada="{Binding ImagensPorCamada}" />
+        </ScrollView>
+
+        <HorizontalStackLayout Grid.Row="3" Spacing="8">
+            <Label Text="Camadas" FontAttributes="Bold" VerticalOptions="Center" />
+            <Button Text="+ Nova camada" Clicked="OnNovaCamadaClicked" />
+        </HorizontalStackLayout>
+
+        <!-- Painel estilo Photoshop: fundo escuro, olho (visibilidade), miniatura em xadrez,
+             nome, opacidade, cadeado (bloqueio); ▲/▼ substituem o drag-and-drop de reordenar do
+             Photoshop (mais confiável em toque, ver comentário na ViewModel). CollectionView rola
+             sozinho quando a lista não cabe na altura disponível (2* da Grid). -->
+        <Border Grid.Row="4" StrokeShape="RoundRectangle 4" Stroke="#1E1E1E" BackgroundColor="#2E2E2E" Padding="0">
+            <CollectionView ItemsSource="{Binding Camadas}" BackgroundColor="Transparent">
+                <CollectionView.ItemTemplate>
+                    <DataTemplate x:DataType="contracts:CamadaDto">
+                        <Grid Padding="6,4" ColumnDefinitions="32,36,*,80,32,28" ColumnSpacing="6" RowDefinitions="Auto" BackgroundColor="Transparent">
+                            <Grid.GestureRecognizers>
+                                <TapGestureRecognizer
+                                    Command="{Binding BindingContext.SelecionarCamadaCommand, Source={RelativeSource AncestorType={x:Type ContentPage}}}"
+                                    CommandParameter="{Binding .}" />
+                            </Grid.GestureRecognizers>
+
+                            <!-- Olho: sempre mostra um glifo (aberto/fechado) pra permanecer visível e clicável
+                                 mesmo com a camada oculta — antes sumia por completo e ficava impossível achar
+                                 o botão pra reexibir a camada. -->
+                            <Button Grid.Column="0" Text="{Binding Visivel, Converter={StaticResource BoolParaTextoConverter}, ConverterParameter='👁;🚫'}"
+                                    FontSize="16" TextColor="#DCDCDC" BackgroundColor="Transparent" Padding="0" BorderWidth="0"
+                                    Command="{Binding BindingContext.AlternarVisibilidadeCommand, Source={RelativeSource AncestorType={x:Type ContentPage}}}"
+                                    CommandParameter="{Binding .}" />
+
+                            <views:CamadaThumbnailView Grid.Column="1" WidthRequest="32" HeightRequest="32"
+                                    CamadaId="{Binding Id}"
+                                    ImagensPorCamada="{Binding BindingContext.ImagensPorCamada, Source={RelativeSource AncestorType={x:Type ContentPage}}}" />
+
+                            <VerticalStackLayout Grid.Column="2" Spacing="0" VerticalOptions="Center">
+                                <HorizontalStackLayout Spacing="4">
+                                    <Label Text="{Binding Nome}" TextColor="#DCDCDC" VerticalOptions="Center" LineBreakMode="TailTruncation" />
+                                    <Label Text="🔒" FontSize="11" TextColor="#DCDCDC" VerticalOptions="Center"
+                                           IsVisible="{Binding Bloqueada}" />
+                                </HorizontalStackLayout>
+                            </VerticalStackLayout>
+
+                            <!-- Opacidade: solta o valor (DragCompleted) só ao final do arrasto, evitando uma
+                                 requisição por tick de slider. -->
+                            <Slider Grid.Column="3" Minimum="0" Maximum="1" Value="{Binding Opacidade, Mode=TwoWay}"
+                                    VerticalOptions="Center"
+                                    DragCompleted="OnOpacidadeSliderDragCompleted" />
+
+                            <!-- Cadeado: só aparece o glifo quando bloqueada, mesma lógica do olho. -->
+                            <Button Grid.Column="4" Text="{Binding Bloqueada, Converter={StaticResource BoolParaTextoConverter}, ConverterParameter='🔒;🔓'}"
+                                    FontSize="14" TextColor="#999999" BackgroundColor="Transparent" Padding="0" BorderWidth="0"
+                                    Command="{Binding BindingContext.AlternarBloqueioCommand, Source={RelativeSource AncestorType={x:Type ContentPage}}}"
+                                    CommandParameter="{Binding .}" />
+
+                            <VerticalStackLayout Grid.Column="5" Spacing="0">
+                                <Button Text="▲" FontSize="9" Padding="2,0" HeightRequest="16" TextColor="#DCDCDC" BackgroundColor="Transparent" BorderWidth="0"
+                                        Command="{Binding BindingContext.MoverCamadaParaCimaCommand, Source={RelativeSource AncestorType={x:Type ContentPage}}}"
+                                        CommandParameter="{Binding .}" />
+                                <Button Text="▼" FontSize="9" Padding="2,0" HeightRequest="16" TextColor="#DCDCDC" BackgroundColor="Transparent" BorderWidth="0"
+                                        Command="{Binding BindingContext.MoverCamadaParaBaixoCommand, Source={RelativeSource AncestorType={x:Type ContentPage}}}"
+                                        CommandParameter="{Binding .}" />
+                            </VerticalStackLayout>
+                        </Grid>
+                    </DataTemplate>
+                </CollectionView.ItemTemplate>
+            </CollectionView>
+        </Border>
+
+        <Label Grid.Row="5" Text="{Binding MensagemErro}" TextColor="Red" />
+    </Grid>
+</ContentPage>

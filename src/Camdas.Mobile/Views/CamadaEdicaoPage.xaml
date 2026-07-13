@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage
+    x:Class="Camdas.Mobile.Views.CamadaEdicaoPage"
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    xmlns:vm="clr-namespace:Camdas.Mobile.ViewModels;assembly=Camdas.Mobile.Core"
+    xmlns:views="clr-namespace:Camdas.Mobile.Views"
+    x:DataType="vm:CamadaEdicaoViewModel"
+    Title="{Binding Camada.Nome}">
+
+    <Grid Padding="8" RowDefinitions="Auto,*,Auto,Auto" RowSpacing="6">
+
+        <!-- Zoom: mesmo controle da tela de visualização (PlantaPage) — aqui o traço é sempre
+             armazenado na resolução nativa da planta (Canvas.UsarResolucaoNativa=true, definido no
+             code-behind), então desenhar com zoom não distorce nem depende do tamanho da tela do
+             aparelho. -->
+        <HorizontalStackLayout Grid.Row="0" Spacing="8">
+            <Label Text="Zoom" VerticalOptions="Center" />
+            <Button Text="−" WidthRequest="36" Clicked="OnDiminuirZoomClicked" />
+            <Slider x:Name="ZoomSlider" Minimum="0.25" Maximum="3" Value="1" WidthRequest="120"
+                    VerticalOptions="Center" ValueChanged="OnZoomSliderChanged" />
+            <Button Text="+" WidthRequest="36" Clicked="OnAumentarZoomClicked" />
+            <Label x:Name="ZoomLabel" Text="100%" VerticalOptions="Center" WidthRequest="48" />
+        </HorizontalStackLayout>
+
+        <!-- ScrollView permite percorrer a planta quando o zoom deixa o conteúdo maior que a tela. -->
+        <ScrollView Grid.Row="1" Orientation="Both">
+            <views:PlantaCanvasView
+                x:Name="Canvas"
+                Camadas="{Binding Camadas}"
+                ImagemBase="{Binding ImagemBase}"
+                ImagensPorCamada="{Binding ImagensPorCamada}"
+                CamadaAtivaId="{Binding Camada.Id}"
+                CorTraco="{Binding CorTraco}"
+                EspessuraTraco="{Binding EspessuraTraco}"
+                ModoApagar="{Binding ModoApagar}" />
+        </ScrollView>
+
+        <VerticalStackLayout Grid.Row="2" Spacing="4">
+            <HorizontalStackLayout Spacing="6">
+                <Button BackgroundColor="#000000" WidthRequest="32" HeightRequest="32" CommandParameter="#000000" Clicked="OnCorClicked" />
+                <Button BackgroundColor="#E74C3C" WidthRequest="32" HeightRequest="32" CommandParameter="#E74C3C" Clicked="OnCorClicked" />
+                <Button BackgroundColor="#E67E22" WidthRequest="32" HeightRequest="32" CommandParameter="#E67E22" Clicked="OnCorClicked" />
+                <Button BackgroundColor="#F1C40F" WidthRequest="32" HeightRequest="32" CommandParameter="#F1C40F" Clicked="OnCorClicked" />
+                <Button BackgroundColor="#2ECC71" WidthRequest="32" HeightRequest="32" CommandParameter="#2ECC71" Clicked="OnCorClicked" />
+                <Button BackgroundColor="#2E86DE" WidthRequest="32" HeightRequest="32" CommandParameter="#2E86DE" Clicked="OnCorClicked" />
+                <Button BackgroundColor="#8E44AD" WidthRequest="32" HeightRequest="32" CommandParameter="#8E44AD" Clicked="OnCorClicked" />
+                <Button BackgroundColor="#7F8C8D" WidthRequest="32" HeightRequest="32" CommandParameter="#7F8C8D" Clicked="OnCorClicked" />
+            </HorizontalStackLayout>
+            <HorizontalStackLayout Spacing="6">
+                <Label Text="Espessura" VerticalOptions="Center" />
+                <Slider Minimum="2" Maximum="{Binding EspessuraMaxima}" Value="{Binding EspessuraTraco, Mode=TwoWay}" WidthRequest="120" VerticalOptions="Center" />
+                <Label Text="Apagar" VerticalOptions="Center" />
+                <Switch IsToggled="{Binding ModoApagar, Mode=TwoWay}" />
+            </HorizontalStackLayout>
+            <HorizontalStackLayout Spacing="8">
+                <Button Text="Desfazer" Clicked="OnDesfazerClicked" />
+                <Button Text="Limpar" Clicked="OnLimparClicked" />
+                <Button Text="Salvar camada" Command="{Binding SalvarCommand}" />
+            </HorizontalStackLayout>
+        </VerticalStackLayout>
+
+        <Label Grid.Row="3" Text="{Binding MensagemErro}" TextColor="Red" />
+    </Grid>
+</ContentPage>

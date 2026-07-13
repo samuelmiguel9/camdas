@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage
+    x:Class="Camdas.Mobile.Views.ProjetosPage"
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    xmlns:vm="clr-namespace:Camdas.Mobile.ViewModels;assembly=Camdas.Mobile.Core"
+    xmlns:contracts="clr-namespace:Camdas.Contracts;assembly=Camdas.Contracts"
+    x:DataType="vm:ProjetosViewModel"
+    Title="Projetos">
+
+    <ContentPage.ToolbarItems>
+        <ToolbarItem Text="Relatório" Order="Primary" Clicked="OnAbrirRelatorioClicked" />
+    </ContentPage.ToolbarItems>
+
+    <Grid Padding="16" RowDefinitions="Auto,Auto,*,Auto,Auto" RowSpacing="12">
+
+        <HorizontalStackLayout Grid.Row="0" Spacing="8">
+            <Entry Placeholder="Nome do novo projeto" Text="{Binding NovoProjetoNome}" WidthRequest="240" />
+            <Button Text="Criar" Command="{Binding CriarProjetoCommand}" />
+        </HorizontalStackLayout>
+
+        <ActivityIndicator Grid.Row="1" IsRunning="{Binding EstaCarregando}" IsVisible="{Binding EstaCarregando}" />
+
+        <CollectionView Grid.Row="2" ItemsSource="{Binding Projetos}"
+                        SelectionMode="Single" SelectionChangedCommand="{Binding AbrirProjetoCommand}"
+                        SelectionChangedCommandParameter="{Binding SelectedItem, Source={RelativeSource Self}}">
+            <CollectionView.ItemTemplate>
+                <DataTemplate x:DataType="contracts:ProjetoDto">
+                    <Grid Padding="12" ColumnDefinitions="*,Auto,Auto,Auto">
+                        <Label Text="{Binding Nome}" FontAttributes="Bold" VerticalOptions="Center" />
+                        <Label Grid.Column="1" Text="{Binding Status}" TextColor="Gray" VerticalOptions="Center" Margin="0,0,8,0" />
+                        <Button Grid.Column="2" Text="Editar" CommandParameter="{Binding .}" Clicked="OnEditarProjetoClicked" />
+                        <Button Grid.Column="3" Text="Excluir" CommandParameter="{Binding .}" Clicked="OnExcluirProjetoClicked" />
+                    </Grid>
+                </DataTemplate>
+            </CollectionView.ItemTemplate>
+        </CollectionView>
+
+        <Label Grid.Row="3" Text="{Binding MensagemErro}" TextColor="Red" />
+
+        <Label Grid.Row="4" Text="developed by Samuel Miguel" HorizontalOptions="Center" TextColor="Gray" FontSize="12" Margin="0,8,0,0" />
+    </Grid>
+</ContentPage>

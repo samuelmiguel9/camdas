@@ -1,0 +1,128 @@
+.camadas-painel {
+    background-color: #2e2e2e;
+    border: 1px solid #1e1e1e;
+    border-radius: 4px;
+    max-height: 70vh;
+    overflow-y: auto;
+}
+
+.camada-linha {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 6px;
+    border-bottom: 1px solid #1e1e1e;
+}
+
+.camada-linha:last-child {
+    border-bottom: none;
+}
+
+.camada-linha:hover {
+    background-color: #3a3a3a;
+}
+
+.camada-icone {
+    background: transparent;
+    border: none;
+    color: #dcdcdc;
+    font-size: 1rem;
+    width: 20px;
+    flex-shrink: 0;
+    padding: 0;
+}
+
+.camada-cadeado {
+    color: #999;
+    font-size: 0.85rem;
+}
+
+.camada-miniatura {
+    width: 32px;
+    height: 32px;
+    flex-shrink: 0;
+    background-color: #5a5a5a;
+    background-image:
+        linear-gradient(45deg, #404040 25%, transparent 25%),
+        linear-gradient(-45deg, #404040 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, #404040 75%),
+        linear-gradient(-45deg, transparent 75%, #404040 75%);
+    background-size: 8px 8px;
+    background-position: 0 0, 0 4px, 4px -4px, -4px 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+}
+
+.camada-miniatura img {
+    max-width: 100%;
+    max-height: 100%;
+}
+
+.camada-info {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.camada-nome {
+    color: #dcdcdc;
+    font-size: 0.9rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.camada-opacidade {
+    width: 100%;
+    height: 14px;
+}
+
+.camada-cadeado-inline {
+    font-size: 0.7rem;
+    margin-left: 4px;
+}
+
+.camada-ordem {
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+}
+
+.camada-seta {
+    background: transparent;
+    border: none;
+    color: #dcdcdc;
+    font-size: 0.6rem;
+    line-height: 1;
+    padding: 1px 2px;
+}
+
+.camada-seta:hover,
+.camada-icone:hover {
+    color: #ffffff;
+}
+
+.planta-zoom-controles {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.planta-zoom-valor {
+    min-width: 3.5rem;
+    text-align: right;
+}
+
+/* Wrapper com barra de rolagem: a planta pode ficar maior que a área visível (zoom alto ou imagem
+   grande) — sem isto ela ficava cortada, sem forma de ver o restante. */
+.planta-canvas-scroll {
+    max-height: 75vh;
+    overflow: auto;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+}

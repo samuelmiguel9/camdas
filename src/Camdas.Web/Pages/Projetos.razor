@@ -1,0 +1,60 @@
+@page "/projetos"
+@using Camdas.Contracts
+@using Camdas.Mobile.ViewModels
+@implements IDisposable
+@inject ProjetosViewModel ViewModel
+@inject NavigationManager Navegacao
+
+<PageTitle>Projetos — Camdas</PageTitle>
+
+<h1>Projetos</h1>
+
+@if (ViewModel.MensagemErro is not null)
+{
+    <p class="text-danger">@ViewModel.MensagemErro</p>
+}
+
+<div class="mb-3 d-flex gap-2">
+    <input class="form-control" style="max-width: 300px" @bind="ViewModel.NovoProjetoNome" placeholder="Nome do novo projeto" />
+    <button class="btn btn-primary" disabled="@ViewModel.EstaCarregando" @onclick="CriarAsync">Criar</button>
+</div>
+
+@if (ViewModel.EstaCarregando)
+{
+    <p><em>Carregando...</em></p>
+}
+
+<ul class="list-group">
+    @foreach (var projeto in ViewModel.Projetos)
+    {
+        <li class="list-group-item d-flex justify-content-between align-items-center">
+            <a href="javascript:void(0)" @onclick="() => AbrirProjeto(projeto)">@projeto.Nome</a>
+            <span class="badge bg-secondary">@projeto.Status</span>
+        </li>
+    }
+</ul>
+
+@code {
+    protected override async Task OnInitializedAsync()
+    {
+        ViewModel.PropertyChanged += AoPropriedadeMudar;
+        ViewModel.Projetos.CollectionChanged += AoColecaoMudar;
+        await ViewModel.CarregarCommand.ExecuteAsync(null);
+    }
+
+    private async Task CriarAsync() => await ViewModel.CriarProjetoCommand.ExecuteAsync(null);
+
+    private void AbrirProjeto(ProjetoDto projeto) => Navegacao.NavigateTo($"projetos/{projeto.Id}/plantas");
+
+    private void AoPropriedadeMudar(object? remetente, System.ComponentModel.PropertyChangedEventArgs args) =>
+        InvokeAsync(StateHasChanged);
+
+    private void AoColecaoMudar(object? remetente, System.Collections.Specialized.NotifyCollectionChangedEventArgs args) =>
+        InvokeAsync(StateHasChanged);
+
+    public void Dispose()
+    {
+        ViewModel.PropertyChanged -= AoPropriedadeMudar;
+        ViewModel.Projetos.CollectionChanged -= AoColecaoMudar;
+    }
+}

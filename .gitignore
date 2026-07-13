@@ -1,0 +1,24 @@
+## .NET / Visual Studio
+bin/
+obj/
+*.user
+.vs/
+
+## .NET MAUI
+*.apk
+*.aab
+*.ipa
+
+## Testes / cobertura
+TestResults/
+coverage/*.xml
+
+## Logs (Serilog)
+logs/
+
+## Arquivos de plantas importadas/desenhadas (dados de usuário, não código)
+App_Data/
+
+## Editor
+.vscode/
+.idea/

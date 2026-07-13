@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<Shell
+    x:Class="Camdas.Mobile.AppShell"
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    xmlns:views="clr-namespace:Camdas.Mobile.Views"
+    Shell.FlyoutBehavior="Disabled"
+    Title="Camdas">
+
+    <!-- Só a tela inicial (Login) é declarada aqui — as demais são registradas em código
+         (AppShell.xaml.cs) via Routing.RegisterRoute e alcançadas por Shell.Current.GoToAsync como
+         navegação em pilha (empilha/desempilha com o botão voltar), não como abas fixas. -->
+    <ShellContent
+        Title="Entrar"
+        ContentTemplate="{DataTemplate views:LoginPage}"
+        Route="LoginPage" />
+
+</Shell>

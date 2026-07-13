@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage
+    x:Class="Camdas.Mobile.Views.PlantasDoProjetoPage"
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    xmlns:vm="clr-namespace:Camdas.Mobile.ViewModels;assembly=Camdas.Mobile.Core"
+    x:DataType="vm:PlantasDoProjetoViewModel"
+    Title="Plantas do projeto">
+
+    <Grid Padding="16" RowDefinitions="Auto,Auto,*,Auto" RowSpacing="12">
+
+        <Button Grid.Row="0" Text="Importar planta (PDF ou imagem)" Clicked="OnImportarClicked" />
+
+        <ActivityIndicator Grid.Row="1" IsRunning="{Binding EstaCarregando}" IsVisible="{Binding EstaCarregando}" />
+
+        <CollectionView Grid.Row="2" ItemsSource="{Binding Plantas}"
+                        SelectionMode="Single" SelectionChangedCommand="{Binding SelecionarPlantaCommand}"
+                        SelectionChangedCommandParameter="{Binding SelectedItem, Source={RelativeSource Self}}">
+            <CollectionView.ItemTemplate>
+                <DataTemplate x:DataType="vm:PlantaListItemViewModel">
+                    <Grid Padding="12" ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="12">
+                        <Label Grid.Row="0" Grid.Column="0" Text="{Binding Planta.Nome}" FontAttributes="Bold" LineBreakMode="TailTruncation" />
+                        <Label Grid.Row="1" Grid.Column="0" Text="{Binding Planta.DataImportacao, StringFormat='{0:dd/MM/yyyy}'}" TextColor="Gray" />
+                        <Label Grid.Row="2" Grid.Column="0" Text="{Binding Planta.NomeCliente, StringFormat='Cliente: {0}'}"
+                               TextColor="Gray" FontSize="12"
+                               IsVisible="{Binding Planta.NomeCliente, Converter={StaticResource StringNaoVazioParaBoolConverter}}" />
+
+                        <!-- Pré-visualização atualizada da planta (base + camadas), do lado oposto ao nome. -->
+                        <Border Grid.Row="0" Grid.RowSpan="3" Grid.Column="1"
+                                WidthRequest="64" HeightRequest="64" StrokeShape="RoundRectangle 6" Stroke="#D0D0D0">
+                            <Image Source="{Binding MiniaturaPng, Converter={StaticResource BytesParaImageSourceConverter}}" Aspect="AspectFill" />
+                        </Border>
+                    </Grid>
+                </DataTemplate>
+            </CollectionView.ItemTemplate>
+        </CollectionView>
+
+        <Label Grid.Row="3" Text="{Binding MensagemErro}" TextColor="Red" />
+    </Grid>
+</ContentPage>

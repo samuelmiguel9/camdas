@@ -1,0 +1,195 @@
+@page "/plantas/{PlantaId:guid}"
+@using Camdas.Mobile.Rendering
+@using Camdas.Mobile.ViewModels
+@implements IDisposable
+@inject PlantaViewModel ViewModel
+@using SkiaSharp
+@using SkiaSharp.Views.Blazor
+
+<PageTitle>@(ViewModel.Planta?.Nome ?? "Planta") — Camdas</PageTitle>
+
+<h1>@(ViewModel.Planta?.Nome ?? "Carregando...")</h1>
+
+@if (ViewModel.MensagemErro is not null)
+{
+    <p class="text-danger">@ViewModel.MensagemErro</p>
+}
+
+<div class="row">
+    <div class="col-md-3">
+        <h5>Camadas</h5>
+        <div class="camadas-painel">
+            @foreach (var camada in ViewModel.Camadas)
+            {
+                <div class="camada-linha">
+                    <!-- Olho: sempre mostra um glifo (aberto/fechado) pra continuar visível e clicável mesmo
+                         com a camada oculta — antes sumia por completo e ficava impossível achar o botão
+                         pra reexibir a camada (bug reportado). -->
+                    <button class="camada-icone" title="@(camada.Visivel ? "Ocultar" : "Mostrar")" @onclick="() => AlternarVisibilidadeAsync(camada)">
+                        @(camada.Visivel ? "👁" : "🚫")
+                    </button>
+
+                    <div class="camada-miniatura">
+                        @{ var miniatura = MiniaturaCamada(camada.Id); }
+                        @if (miniatura is not null)
+                        {
+                            <img src="@miniatura" alt="" />
+                        }
+                    </div>
+
+                    <div class="camada-info">
+                        <span class="camada-nome" title="@camada.Nome">
+                            @camada.Nome
+                            @if (camada.Bloqueada)
+                            {
+                                <span class="camada-cadeado-inline">🔒</span>
+                            }
+                        </span>
+                        <input class="camada-opacidade" type="range" min="0" max="1" step="0.05"
+                               value="@camada.Opacidade.ToString(System.Globalization.CultureInfo.InvariantCulture)"
+                               title="Opacidade"
+                               @onchange="e => DefinirOpacidadeAsync(camada, e.Value)" />
+                    </div>
+
+                    <button class="camada-icone camada-cadeado" title="@(camada.Bloqueada ? "Desbloquear" : "Bloquear")" @onclick="() => AlternarBloqueioAsync(camada)">
+                        @(camada.Bloqueada ? "🔒" : "🔓")
+                    </button>
+
+                    <div class="camada-ordem">
+                        <button class="camada-seta" @onclick="() => MoverAsync(camada, paraCima: true)">▲</button>
+                        <button class="camada-seta" @onclick="() => MoverAsync(camada, paraCima: false)">▼</button>
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+    <div class="col-md-9">
+        @if (ViewModel.ImagemBase is not null)
+        {
+            <div class="planta-zoom-controles">
+                <span>Zoom</span>
+                <button @onclick="() => AjustarZoom(_zoom - 0.25)">−</button>
+                <input type="range" min="0.25" max="3" step="0.05" value="@_zoom.ToString(System.Globalization.CultureInfo.InvariantCulture)"
+                       @oninput="e => AjustarZoom(double.Parse((string)e.Value!, System.Globalization.CultureInfo.InvariantCulture))" />
+                <button @onclick="() => AjustarZoom(_zoom + 0.25)">+</button>
+                <span class="planta-zoom-valor">@($"{_zoom:P0}")</span>
+                <button @onclick="AjustarZoomParaTela">Ajustar à tela</button>
+            </div>
+
+            <!-- Wrapper com scroll: quando o zoom deixa a planta maior que a área visível, dá pra
+                 percorrer com a barra de rolagem em vez de ficar cortada sem forma de ver o resto
+                 (bug reportado: "não consigo visualizar a planta inteira"). -->
+            <div class="planta-canvas-scroll">
+                <SKCanvasView @ref="_canvasView"
+                              WidthRequest="@((int)(ViewModel.ImagemBase.Width * _zoom))"
+                              HeightRequest="@((int)(ViewModel.ImagemBase.Height * _zoom))"
+                              OnPaintSurface="Desenhar" />
+            </div>
+        }
+        else if (ViewModel.EstaCarregando)
+        {
+            <p><em>Carregando planta...</em></p>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public Guid PlantaId { get; set; }
+
+    private SKCanvasView? _canvasView;
+    private double _zoom = 1.0;
+    private bool _zoomAjustadoNoCarregamento;
+
+    /// <summary>Largura aproximada da coluna da planta (col-md-9) — sem interop de JS pra medir o
+    /// container de verdade, usa essa estimativa só pro botão "Ajustar à tela".</summary>
+    private const double LarguraColunaAproximada = 900;
+
+    protected override async Task OnInitializedAsync()
+    {
+        ViewModel.PropertyChanged += AoPropriedadeMudar;
+        await ViewModel.CarregarAsync(PlantaId);
+
+        // Primeiro carregamento: começa com a planta inteira visível (em vez do tamanho nativo, que
+        // geralmente é maior que a tela e cortava a visualização — bug reportado).
+        if (!_zoomAjustadoNoCarregamento && ViewModel.ImagemBase is not null)
+        {
+            _zoomAjustadoNoCarregamento = true;
+            AjustarZoomParaTela();
+        }
+    }
+
+    private void Desenhar(SKPaintSurfaceEventArgs args)
+    {
+        var canvas = args.Surface.Canvas;
+        canvas.Clear(SKColors.White);
+        canvas.Save();
+        canvas.Scale((float)_zoom);
+        PlantaOverlayRenderer.Desenhar(canvas, ViewModel.Camadas, ViewModel.ImagemBase, ViewModel.ImagensPorCamada);
+        canvas.Restore();
+    }
+
+    private void AjustarZoom(double zoom)
+    {
+        _zoom = Math.Clamp(zoom, 0.25, 3.0);
+        StateHasChanged();
+        InvokeAsync(() => _canvasView?.Invalidate());
+    }
+
+    private void AjustarZoomParaTela()
+    {
+        if (ViewModel.ImagemBase is not { } imagemBase || imagemBase.Width <= 0)
+            return;
+
+        AjustarZoom(Math.Min(1.0, LarguraColunaAproximada / imagemBase.Width));
+    }
+
+    private async Task AlternarVisibilidadeAsync(Camdas.Contracts.CamadaDto camada)
+    {
+        await ViewModel.AlternarVisibilidadeCommand.ExecuteAsync(camada);
+        _canvasView?.Invalidate();
+    }
+
+    private async Task AlternarBloqueioAsync(Camdas.Contracts.CamadaDto camada) =>
+        await ViewModel.AlternarBloqueioCommand.ExecuteAsync(camada);
+
+    private async Task MoverAsync(Camdas.Contracts.CamadaDto camada, bool paraCima) =>
+        await ViewModel.MoverCamadaAsync(camada, paraCima);
+
+    private async Task DefinirOpacidadeAsync(Camdas.Contracts.CamadaDto camada, object? valor)
+    {
+        if (valor is not string texto || !double.TryParse(texto, System.Globalization.CultureInfo.InvariantCulture, out var opacidade))
+            return;
+
+        await ViewModel.DefinirOpacidadeAsync(camada, opacidade);
+        _canvasView?.Invalidate();
+    }
+
+    /// <summary>Miniatura em xadrez (indica transparência) + traço da camada, mantendo proporção — mesmo espírito visual do painel de camadas do Photoshop.</summary>
+    private string? MiniaturaCamada(Guid camadaId)
+    {
+        if (!ViewModel.ImagensPorCamada.TryGetValue(camadaId, out var bitmap))
+            return null;
+
+        const int tamanho = 32;
+        var escala = (float)tamanho / Math.Max(bitmap.Width, bitmap.Height);
+        using var reduzida = bitmap.Resize(
+            new SKImageInfo(Math.Max(1, (int)(bitmap.Width * escala)), Math.Max(1, (int)(bitmap.Height * escala))),
+            SKFilterQuality.Medium);
+        if (reduzida is null)
+            return null;
+
+        using var imagem = SKImage.FromBitmap(reduzida);
+        using var dados = imagem.Encode(SKEncodedImageFormat.Png, 90);
+        return $"data:image/png;base64,{Convert.ToBase64String(dados.ToArray())}";
+    }
+
+    private void AoPropriedadeMudar(object? remetente, System.ComponentModel.PropertyChangedEventArgs args)
+    {
+        InvokeAsync(StateHasChanged);
+        if (args.PropertyName == nameof(ViewModel.ImagemBase))
+            InvokeAsync(() => _canvasView?.Invalidate());
+    }
+
+    public void Dispose() => ViewModel.PropertyChanged -= AoPropriedadeMudar;
+}

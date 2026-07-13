@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Camdas.Domain</RootNamespace>
+    <!-- Domínio não deve depender de nenhum pacote externo (EF Core, JSON, etc.). -->
+  </PropertyGroup>
+
+</Project>
