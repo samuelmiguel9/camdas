@@ -22,3 +22,6 @@ App_Data/
 ## Editor
 .vscode/
 .idea/
+
+## Estado interno de ferramentas de agente/IA (não é código do projeto)
+.claude/
