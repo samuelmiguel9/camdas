@@ -152,6 +152,13 @@ if (!app.Environment.IsDevelopment())
     }
 }
 
+// Aplica migrations pendentes automaticamente ao iniciar — idempotente (não faz nada se o banco já
+// está atualizado). Necessário pra deploy em serviços gerenciados (Render, etc.) onde não há como
+// rodar `dotnet ef database update` manualmente antes do primeiro boot; em desenvolvimento local
+// continua funcionando igual (só aplica o que ainda não foi aplicado).
+using (var escopo = app.Services.CreateScope())
+    escopo.ServiceProvider.GetRequiredService<CamdasDbContext>().Database.Migrate();
+
 // Endpoint anônimo e leve, usado apenas pelo app mobile para descobrir em qual rede (casa/trabalho)
 // o servidor está acessível antes de tentar autenticar — ver ResolvedorEnderecoApi.
 app.MapGet("/health", () => Results.Ok());

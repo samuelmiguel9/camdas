@@ -1,0 +1,31 @@
+# Blueprint do Render (https://render.com/docs/blueprint-spec) — cria a Api e o banco Postgres numa
+# tacada só. Ver GUIA_DEPLOY_RENDER.md para o passo a passo de uso.
+databases:
+  - name: camdas-db
+    plan: free
+    databaseName: camdas
+    user: camdas
+
+services:
+  - type: web
+    name: camdas-api
+    runtime: docker
+    dockerfilePath: ./src/Camdas.Api/Dockerfile
+    dockerContext: .
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production
+      - key: Jwt__Chave
+        generateValue: true
+      - key: Jwt__Emissor
+        value: Camdas.Api
+      - key: Jwt__Audiencia
+        value: Camdas.Clientes
+      - key: Jwt__ExpiracaoMinutos
+        value: "480"
+      - key: ConnectionStrings__Camdas
+        fromDatabase:
+          name: camdas-db
+          property: connectionString
