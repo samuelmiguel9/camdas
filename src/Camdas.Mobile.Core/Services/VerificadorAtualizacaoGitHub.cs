@@ -17,7 +17,7 @@ public sealed class VerificadorAtualizacaoGitHub(HttpClient httpClient) : IVerif
     /// Camdas.Mobile.csproj a cada publicação — não há uma fonte única automática porque a tag do
     /// GitHub Release é decidida na hora de publicar, não no build.
     /// </summary>
-    public const string VersaoAtual = "v1.1.0";
+    public const string VersaoAtual = "v1.2.0";
 
     public async Task<AtualizacaoDisponivel?> VerificarAsync(CancellationToken ct = default)
     {

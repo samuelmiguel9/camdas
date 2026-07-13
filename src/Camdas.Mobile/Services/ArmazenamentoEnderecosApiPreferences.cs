@@ -13,16 +13,25 @@ public sealed class ArmazenamentoEnderecosApiPreferences : IArmazenamentoEnderec
     private const string ChaveLista = "camdas_enderecos_api";
     private const string ChaveAtivo = "camdas_endereco_ativo";
 
-    private static readonly EnderecoApi EnderecoPadrao = new("Trabalho Starlink", "http://192.168.1.33:5080/");
+    /// <summary>
+    /// "Render (nuvem)" primeiro — funciona de qualquer rede/internet, então é o endereço padrão
+    /// ativo; o endereço local fica salvo como alternativa (ex.: testar contra a Api rodando no PC
+    /// antes de publicar uma mudança).
+    /// </summary>
+    private static readonly IReadOnlyList<EnderecoApi> EnderecosPadrao =
+    [
+        new("Render (nuvem)", "https://camdas-api-gb9z.onrender.com/"),
+        new("Trabalho Starlink", "http://192.168.1.33:5080/"),
+    ];
 
     public IReadOnlyList<EnderecoApi> Listar()
     {
         var lista = CarregarLista();
         if (lista.Count == 0)
         {
-            lista = [EnderecoPadrao];
+            lista = EnderecosPadrao.ToList();
             SalvarLista(lista);
-            Preferences.Default.Set(ChaveAtivo, EnderecoPadrao.Nome);
+            Preferences.Default.Set(ChaveAtivo, EnderecosPadrao[0].Nome);
         }
 
         var ativo = Preferences.Default.Get(ChaveAtivo, string.Empty);
