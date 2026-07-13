@@ -6,12 +6,20 @@ using CommunityToolkit.Mvvm.Input;
 
 namespace Camdas.Mobile.ViewModels;
 
-public partial class ProjetosViewModel(IApiClient apiClient) : BaseViewModel
+public partial class ProjetosViewModel(IApiClient apiClient, IVerificadorAtualizacao verificadorAtualizacao) : BaseViewModel
 {
     public ObservableCollection<ProjetoDto> Projetos { get; } = [];
 
     [ObservableProperty]
     private string _novoProjetoNome = string.Empty;
+
+    /// <summary>Null enquanto não há atualização — a Page só mostra o aviso quando isto (e
+    /// <see cref="UrlAtualizacao"/>) estiverem preenchidos.</summary>
+    [ObservableProperty]
+    private string? _mensagemAtualizacao;
+
+    [ObservableProperty]
+    private string? _urlAtualizacao;
 
     /// <summary>A navegação em si (Shell.Current.GoToAsync) fica no code-behind da Page — este
     /// ViewModel não conhece MAUI, só avisa "o usuário escolheu este projeto".</summary>
@@ -36,6 +44,13 @@ public partial class ProjetosViewModel(IApiClient apiClient) : BaseViewModel
         finally
         {
             EstaCarregando = false;
+        }
+
+        var atualizacao = await verificadorAtualizacao.VerificarAsync();
+        if (atualizacao is not null)
+        {
+            MensagemAtualizacao = $"Nova versão disponível: {atualizacao.Versao}";
+            UrlAtualizacao = atualizacao.UrlDownload;
         }
     }
 

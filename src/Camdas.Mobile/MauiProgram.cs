@@ -47,6 +47,13 @@ public static class MauiProgram
         }).AddHttpMessageHandler<EnderecoDinamicoHandler>()
           .AddHttpMessageHandler<TokenAuthHandler>();
 
+        // Checagem de atualização (GitHub Releases) — host fixo e sem relação com ConfiguracaoApi
+        // (que aponta pro servidor da intranet, não pro GitHub).
+        services.AddHttpClient<IVerificadorAtualizacao, VerificadorAtualizacaoGitHub>(cliente =>
+        {
+            cliente.BaseAddress = new Uri("https://api.github.com/");
+        });
+
         services.AddTransient<LoginViewModel>();
         services.AddTransient<ProjetosViewModel>();
         services.AddTransient<PlantasDoProjetoViewModel>();

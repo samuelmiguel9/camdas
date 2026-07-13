@@ -48,6 +48,23 @@ public partial class ProjetosPage : ContentPage
         await _viewModel.RemoverAsync(projeto);
     }
 
+    /// <summary>Abre a página do release no navegador do aparelho — o app não baixa/instala a
+    /// atualização sozinho, só leva o usuário até onde o `.apk` novo está disponível.</summary>
+    private async void OnBaixarAtualizacaoClicked(object? sender, EventArgs e)
+    {
+        if (_viewModel.UrlAtualizacao is not { } url)
+            return;
+
+        try
+        {
+            await Launcher.Default.OpenAsync(new Uri(url));
+        }
+        catch (Exception ex)
+        {
+            await DisplayAlert("Atualização", $"Não foi possível abrir o link: {ex.Message}", "OK");
+        }
+    }
+
     /// <summary>Gera o changelog versionado em PDF e abre no visualizador padrão do aparelho — o app
     /// não embute um leitor de PDF próprio, só entrega o arquivo pronto pro Android abrir.</summary>
     private async void OnAbrirRelatorioClicked(object? sender, EventArgs e)

@@ -20,7 +20,7 @@ public class ProjetosViewModelTests
         apiClient.ListarProjetosAsync(Arg.Any<CancellationToken>())
             .Returns(new List<ProjetoDto> { NovoProjeto("Residência Alfa"), NovoProjeto("Residência Beta") });
 
-        var viewModel = new ProjetosViewModel(apiClient);
+        var viewModel = new ProjetosViewModel(apiClient, Substitute.For<IVerificadorAtualizacao>());
 
         await viewModel.CarregarCommand.ExecuteAsync(null);
 
@@ -35,7 +35,7 @@ public class ProjetosViewModelTests
         apiClient.CriarProjetoAsync(Arg.Any<CriarProjetoRequest>(), Arg.Any<CancellationToken>())
             .Returns(callInfo => Task.FromResult(NovoProjeto(callInfo.Arg<CriarProjetoRequest>().Nome)));
 
-        var viewModel = new ProjetosViewModel(apiClient) { NovoProjetoNome = "Residência Gama" };
+        var viewModel = new ProjetosViewModel(apiClient, Substitute.For<IVerificadorAtualizacao>()) { NovoProjetoNome = "Residência Gama" };
 
         await viewModel.CriarProjetoCommand.ExecuteAsync(null);
 
@@ -47,7 +47,7 @@ public class ProjetosViewModelTests
     public async Task Criar_projeto_sem_nome_nao_deve_chamar_api()
     {
         var apiClient = Substitute.For<IApiClient>();
-        var viewModel = new ProjetosViewModel(apiClient) { NovoProjetoNome = "   " };
+        var viewModel = new ProjetosViewModel(apiClient, Substitute.For<IVerificadorAtualizacao>()) { NovoProjetoNome = "   " };
 
         await viewModel.CriarProjetoCommand.ExecuteAsync(null);
 
