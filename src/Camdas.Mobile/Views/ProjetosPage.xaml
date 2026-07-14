@@ -32,12 +32,20 @@
 
         <ActivityIndicator Grid.Row="2" IsRunning="{Binding EstaCarregando}" IsVisible="{Binding EstaCarregando}" />
 
-        <CollectionView Grid.Row="3" ItemsSource="{Binding Projetos}"
-                        SelectionMode="Single" SelectionChangedCommand="{Binding AbrirProjetoCommand}"
-                        SelectionChangedCommandParameter="{Binding SelectedItem, Source={RelativeSource Self}}">
+        <!-- Sem SelectionMode/SelectionChangedCommand de propósito: um CollectionView com seleção
+             não dispara o comando de novo ao tocar no item já selecionado (bug reportado: só
+             conseguia abrir um projeto clicando em outro antes). TapGestureRecognizer por item
+             dispara sempre. -->
+        <CollectionView Grid.Row="3" ItemsSource="{Binding Projetos}">
             <CollectionView.ItemTemplate>
                 <DataTemplate x:DataType="contracts:ProjetoDto">
                     <Grid Padding="12" ColumnDefinitions="*,Auto,Auto,Auto">
+                        <Grid.GestureRecognizers>
+                            <TapGestureRecognizer
+                                Command="{Binding BindingContext.AbrirProjetoCommand, Source={RelativeSource AncestorType={x:Type ContentPage}}}"
+                                CommandParameter="{Binding .}" />
+                        </Grid.GestureRecognizers>
+
                         <Label Text="{Binding Nome}" FontAttributes="Bold" VerticalOptions="Center" />
                         <Label Grid.Column="1" Text="{Binding Status}" TextColor="Gray" VerticalOptions="Center" Margin="0,0,8,0" />
                         <Button Grid.Column="2" Text="Editar" CommandParameter="{Binding .}" Clicked="OnEditarProjetoClicked" />

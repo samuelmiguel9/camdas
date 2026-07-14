@@ -278,16 +278,29 @@ Legenda de status: `[ ]` pendente · `[~]` em andamento · `[x]` concluído
       teste)
 - [x] Verificado: `dotnet build Camdas.sln` e `dotnet test Camdas.sln` — 62/62 testes passando
 
+### Fase 8.1 — Correções reportadas após publicar a Api na nuvem (Render + Supabase)
+- [x] Excluir camada (Domain já tinha `Planta.RemoverCamada`; faltava o caso de uso
+      `RemoverCamadaCommand`, endpoint `DELETE /api/plantas/{id}/camadas/{id}` e o botão 🗑 na UI —
+      Mobile e Web)
+- [x] Excluir planta (`RemoverPlantaCommand`, `DELETE /api/plantas/{id}`, botão "Excluir" na lista de
+      plantas do projeto — Mobile e Web)
+- [x] **Bug real**: depois de tocar num projeto/planta já selecionado (ex.: voltar da tela e tocar de
+      novo no mesmo item), o `CollectionView` não abria mais — só entrando em outro item antes.
+      Causa: `SelectionChangedCommand` só dispara quando a seleção *muda*; tocar no item já
+      selecionado não conta como mudança. Corrigido trocando por `TapGestureRecognizer` por item
+      (mesmo padrão já usado na lista de camadas), que dispara sempre, em `ProjetosPage` e
+      `PlantasDoProjetoPage`
+- [x] Verificado: `dotnet build Camdas.sln`, build do projeto Android e `dotnet test Camdas.sln` —
+      63/63 testes passando
+
 ---
 
 ## Backlog futuro (fora do MVP, não priorizado)
 - [ ] Login por credencial de verdade (hash de senha) — o `dev-token` é só placeholder de dev/teste
 - [ ] Importação/edição nativa de DWG/DXF
 - [ ] Modo offline com fila de sincronização
-- [x] Undo por traço (não só "limpar camada" inteira) — `PlantaCanvasView` guarda cada traço como
-      lista de pontos (`_historicoTracos`); "Desfazer" remove o último e reconstrói o bitmap do zero
-      reaplicando os demais. Histórico vale só pra sessão de edição atual (traço já salvo antes de
-      abrir a tela não entra no histórico, só o bitmap final carregado do servidor)
+- [ ] Undo por traço (não só "limpar camada" inteira) — implementado e depois **revertido a pedido**
+      (só "Limpar camada" inteira, como era antes)
 - [x] Zoom/pan no canvas de desenho e suporte a manter a proporção do traço entre resoluções de
       dispositivo diferentes — `PlantaCanvasView.UsarResolucaoNativa` (novo): quando ligado (Planta
       Page e CamadaEdicaoPage), o bitmap de cada camada é criado no tamanho nativo da imagem base,

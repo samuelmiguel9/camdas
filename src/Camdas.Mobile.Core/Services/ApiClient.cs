@@ -71,12 +71,24 @@ public sealed class ApiClient(HttpClient httpClient) : IApiClient
     public async Task<byte[]> ObterArquivoPlantaAsync(Guid plantaId, CancellationToken ct = default) =>
         await httpClient.GetByteArrayAsync($"api/plantas/{plantaId}/arquivo", ct);
 
+    public async Task RemoverPlantaAsync(Guid plantaId, CancellationToken ct = default)
+    {
+        var resposta = await httpClient.DeleteAsync($"api/plantas/{plantaId}", ct);
+        resposta.EnsureSuccessStatusCode();
+    }
+
     public async Task<CamadaDto> CriarCamadaAsync(Guid plantaId, string nome, CancellationToken ct = default)
     {
         var resposta = await httpClient.PostAsJsonAsync(
             $"api/plantas/{plantaId}/camadas", new CriarCamadaRequest(nome), ApiJsonOptions.Padrao, ct);
         resposta.EnsureSuccessStatusCode();
         return (await resposta.Content.ReadFromJsonAsync<CamadaDto>(ApiJsonOptions.Padrao, ct))!;
+    }
+
+    public async Task RemoverCamadaAsync(Guid plantaId, Guid camadaId, CancellationToken ct = default)
+    {
+        var resposta = await httpClient.DeleteAsync($"api/plantas/{plantaId}/camadas/{camadaId}", ct);
+        resposta.EnsureSuccessStatusCode();
     }
 
     public async Task<IReadOnlyList<CamadaDto>> ReordenarCamadasAsync(

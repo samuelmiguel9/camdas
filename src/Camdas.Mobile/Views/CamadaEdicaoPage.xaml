@@ -54,7 +54,6 @@
                 <Switch IsToggled="{Binding ModoApagar, Mode=TwoWay}" />
             </HorizontalStackLayout>
             <HorizontalStackLayout Spacing="8">
-                <Button Text="Desfazer" Clicked="OnDesfazerClicked" />
                 <Button Text="Limpar" Clicked="OnLimparClicked" />
                 <Button Text="Salvar camada" Command="{Binding SalvarCommand}" />
             </HorizontalStackLayout>

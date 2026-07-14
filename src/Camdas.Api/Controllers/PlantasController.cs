@@ -52,4 +52,11 @@ public sealed class PlantasController(ISender mediator) : ControllerBase
         var conteudo = await mediator.Send(new ObterArquivoPlantaQuery(plantaId), ct);
         return File(conteudo, "image/png");
     }
+
+    [HttpDelete("{plantaId:guid}")]
+    public async Task<IActionResult> Remover(Guid plantaId, CancellationToken ct)
+    {
+        await mediator.Send(new RemoverPlantaCommand(plantaId), ct);
+        return NoContent();
+    }
 }

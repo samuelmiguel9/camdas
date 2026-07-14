@@ -23,8 +23,10 @@ public interface IApiClient
         string nomeArquivo, Stream conteudo, CancellationToken ct = default);
     Task<PlantaDto> ObterPlantaAsync(Guid plantaId, CancellationToken ct = default);
     Task<byte[]> ObterArquivoPlantaAsync(Guid plantaId, CancellationToken ct = default);
+    Task RemoverPlantaAsync(Guid plantaId, CancellationToken ct = default);
 
     Task<CamadaDto> CriarCamadaAsync(Guid plantaId, string nome, CancellationToken ct = default);
+    Task RemoverCamadaAsync(Guid plantaId, Guid camadaId, CancellationToken ct = default);
     Task<IReadOnlyList<CamadaDto>> ReordenarCamadasAsync(Guid plantaId, IReadOnlyList<Guid> ordemDosIds, CancellationToken ct = default);
     Task<CamadaDto> AlternarVisibilidadeCamadaAsync(Guid plantaId, Guid camadaId, CancellationToken ct = default);
     Task<CamadaDto> DefinirOpacidadeCamadaAsync(Guid plantaId, Guid camadaId, double opacidade, CancellationToken ct = default);

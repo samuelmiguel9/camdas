@@ -75,7 +75,5 @@ public partial class CamadaEdicaoPage : ContentPage
             _viewModel.EscolherCorCommand.Execute(cor);
     }
 
-    private void OnDesfazerClicked(object? sender, EventArgs e) => Canvas.DesfazerUltimoTraco();
-
     private void OnLimparClicked(object? sender, EventArgs e) => Canvas.LimparCamadaAtiva();
 }

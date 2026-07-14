@@ -51,7 +51,7 @@
             <CollectionView ItemsSource="{Binding Camadas}" BackgroundColor="Transparent">
                 <CollectionView.ItemTemplate>
                     <DataTemplate x:DataType="contracts:CamadaDto">
-                        <Grid Padding="6,4" ColumnDefinitions="32,36,*,80,32,28" ColumnSpacing="6" RowDefinitions="Auto" BackgroundColor="Transparent">
+                        <Grid Padding="6,4" ColumnDefinitions="32,36,*,80,32,28,28" ColumnSpacing="6" RowDefinitions="Auto" BackgroundColor="Transparent">
                             <Grid.GestureRecognizers>
                                 <TapGestureRecognizer
                                     Command="{Binding BindingContext.SelecionarCamadaCommand, Source={RelativeSource AncestorType={x:Type ContentPage}}}"
@@ -98,6 +98,9 @@
                                         Command="{Binding BindingContext.MoverCamadaParaBaixoCommand, Source={RelativeSource AncestorType={x:Type ContentPage}}}"
                                         CommandParameter="{Binding .}" />
                             </VerticalStackLayout>
+
+                            <Button Grid.Column="6" Text="🗑" FontSize="14" TextColor="#E74C3C" BackgroundColor="Transparent" Padding="0" BorderWidth="0"
+                                    CommandParameter="{Binding .}" Clicked="OnExcluirCamadaClicked" />
                         </Grid>
                     </DataTemplate>
                 </CollectionView.ItemTemplate>

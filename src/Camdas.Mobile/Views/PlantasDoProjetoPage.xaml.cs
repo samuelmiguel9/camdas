@@ -54,4 +54,17 @@ public partial class PlantasDoProjetoPage : ContentPage
         await using var conteudo = await arquivo.OpenReadAsync();
         await _viewModel.ImportarAsync(nome, descricao, nomeCliente, tipo, arquivo.FileName, conteudo);
     }
+
+    private async void OnExcluirPlantaClicked(object? sender, EventArgs e)
+    {
+        if (sender is not Button { CommandParameter: PlantaListItemViewModel item })
+            return;
+
+        var confirmar = await DisplayAlert(
+            "Excluir planta", $"Excluir '{item.Planta.Nome}'? Isso apaga também todas as camadas dela, sem volta.", "Excluir", "Cancelar");
+        if (!confirmar)
+            return;
+
+        await _viewModel.RemoverAsync(item);
+    }
 }

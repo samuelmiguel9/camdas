@@ -12,7 +12,7 @@ namespace Camdas.Mobile.Views;
 /// visível + as linhas de cota (a lógica de "o que desenhar" vive em
 /// <see cref="PlantaOverlayRenderer"/>, Camdas.Mobile.Core, testável sem Android). Esta classe
 /// adiciona o que só pode viver aqui: o ciclo de vida do <see cref="SKCanvasView"/>, o toque
-/// (rabiscar/escrever na camada ativa), zoom/pan e desfazer traço.
+/// (rabiscar/escrever na camada ativa) e zoom/pan.
 ///
 /// Quando <see cref="UsarResolucaoNativa"/> é true (PlantaPage e CamadaEdicaoPage), o bitmap de cada
 /// camada é criado no tamanho nativo da imagem base — não no tamanho da tela do aparelho — então o
@@ -22,14 +22,6 @@ namespace Camdas.Mobile.Views;
 /// </summary>
 public sealed class PlantaCanvasView : SKCanvasView
 {
-    /// <summary>Um traço completo (do toque até soltar), guardado pra permitir desfazer sem apagar a
-    /// camada inteira — reconstruído reaplicando todos os traços restantes do zero.</summary>
-    private sealed record Traco(List<SKPoint> Pontos, string Cor, float Espessura, bool Apagar);
-
-    private readonly List<Traco> _historicoTracos = [];
-    private Traco? _tracoEmAndamento;
-
-
     public static readonly BindableProperty CamadasProperty = BindableProperty.Create(
         nameof(Camadas), typeof(IReadOnlyList<CamadaDto>), typeof(PlantaCanvasView),
         defaultValue: null,
@@ -181,57 +173,9 @@ public sealed class PlantaCanvasView : SKCanvasView
         var bitmap = ObterOuCriarBitmapDaCamada(camadaId);
         using var canvas = new SKCanvas(bitmap);
         canvas.Clear(SKColors.Transparent);
-        _historicoTracos.Clear();
 
         DesenhoAlterado?.Invoke(this, EventArgs.Empty);
         InvalidateSurface();
-    }
-
-    /// <summary>
-    /// Remove só o último traço (não a camada inteira) — reconstrói o bitmap do zero e reaplica todo
-    /// o histórico restante, já que o traço é desenhado direto no bitmap (raster) e não dá pra
-    /// "apagar" um traço específico sem redesenhar os demais por cima.
-    /// </summary>
-    public void DesfazerUltimoTraco()
-    {
-        if (CamadaAtivaId is not { } camadaId || ImagensPorCamada is null || _historicoTracos.Count == 0)
-            return;
-
-        _historicoTracos.RemoveAt(_historicoTracos.Count - 1);
-
-        var bitmap = ObterOuCriarBitmapDaCamada(camadaId);
-        using var canvas = new SKCanvas(bitmap);
-        canvas.Clear(SKColors.Transparent);
-        foreach (var traco in _historicoTracos)
-            DesenharTraco(canvas, traco);
-
-        DesenhoAlterado?.Invoke(this, EventArgs.Empty);
-        InvalidateSurface();
-    }
-
-    public bool TemTracoParaDesfazer => _historicoTracos.Count > 0;
-
-    private static void DesenharTraco(SKCanvas canvas, Traco traco)
-    {
-        using var paint = new SKPaint
-        {
-            IsAntialias = true,
-            Style = SKPaintStyle.Stroke,
-            StrokeCap = SKStrokeCap.Round,
-            StrokeJoin = SKStrokeJoin.Round,
-            StrokeWidth = traco.Espessura,
-            BlendMode = traco.Apagar ? SKBlendMode.Clear : SKBlendMode.SrcOver,
-            Color = traco.Apagar ? SKColors.Transparent : SKColor.Parse(traco.Cor),
-        };
-
-        if (traco.Pontos.Count == 1)
-        {
-            canvas.DrawCircle(traco.Pontos[0], traco.Espessura / 2, paint);
-            return;
-        }
-
-        for (var i = 1; i < traco.Pontos.Count; i++)
-            canvas.DrawLine(traco.Pontos[i - 1], traco.Pontos[i], paint);
     }
 
     protected override void OnPaintSurface(SKPaintSurfaceEventArgs e)
@@ -318,20 +262,13 @@ public sealed class PlantaCanvasView : SKCanvasView
             case SKTouchAction.Pressed:
                 canvasBitmap.DrawCircle(ponto, EspessuraTraco / 2, paint);
                 _ultimoPontoToque = ponto;
-                _tracoEmAndamento = new Traco([ponto], CorTraco, EspessuraTraco, ModoApagar);
                 break;
             case SKTouchAction.Moved when _ultimoPontoToque is { } ultimo:
                 canvasBitmap.DrawLine(ultimo, ponto, paint);
                 _ultimoPontoToque = ponto;
-                _tracoEmAndamento?.Pontos.Add(ponto);
                 break;
             case SKTouchAction.Released:
                 _ultimoPontoToque = null;
-                if (_tracoEmAndamento is not null)
-                {
-                    _historicoTracos.Add(_tracoEmAndamento);
-                    _tracoEmAndamento = null;
-                }
                 DesenhoAlterado?.Invoke(this, EventArgs.Empty);
                 break;
         }

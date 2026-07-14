@@ -25,6 +25,13 @@ public sealed class CamadasController(ISender mediator) : ControllerBase
     public async Task<ActionResult<CamadaDto>> Criar(Guid plantaId, CriarCamadaRequest request, CancellationToken ct) =>
         Ok(await mediator.Send(new CriarCamadaCommand(plantaId, request.Nome), ct));
 
+    [HttpDelete("{camadaId:guid}")]
+    public async Task<IActionResult> Remover(Guid plantaId, Guid camadaId, CancellationToken ct)
+    {
+        await mediator.Send(new RemoverCamadaCommand(plantaId, camadaId), ct);
+        return NoContent();
+    }
+
     [HttpPut("ordem")]
     public async Task<ActionResult<IReadOnlyList<CamadaDto>>> Reordenar(Guid plantaId, ReordenarCamadasRequest request, CancellationToken ct) =>
         Ok(await mediator.Send(new ReordenarCamadasCommand(plantaId, request.OrdemDosIds), ct));

@@ -212,6 +212,33 @@ public partial class PlantaViewModel(IApiClient apiClient) : BaseViewModel
         }
     }
 
+    public async Task RemoverCamadaAsync(CamadaDto camada)
+    {
+        if (Planta is null)
+            return;
+
+        EstaCarregando = true;
+        MensagemErro = null;
+        try
+        {
+            await apiClient.RemoverCamadaAsync(Planta.Id, camada.Id);
+            Camadas.Remove(camada);
+            ImagensPorCamada.Remove(camada.Id, out var bitmap);
+            bitmap?.Dispose();
+
+            if (CamadaAtiva?.Id == camada.Id)
+                CamadaAtiva = Camadas.FirstOrDefault();
+        }
+        catch (Exception ex)
+        {
+            MensagemErro = $"Não foi possível excluir a camada: {ex.Message}";
+        }
+        finally
+        {
+            EstaCarregando = false;
+        }
+    }
+
     private void SubstituirCamada(CamadaDto atualizada)
     {
         for (var i = 0; i < Camadas.Count; i++)

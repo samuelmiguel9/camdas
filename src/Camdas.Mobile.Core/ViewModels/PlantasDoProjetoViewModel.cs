@@ -78,4 +78,23 @@ public partial class PlantasDoProjetoViewModel(IApiClient apiClient) : BaseViewM
         if (planta is not null)
             PlantaSelecionada?.Invoke(this, planta.Planta);
     }
+
+    public async Task RemoverAsync(PlantaListItemViewModel item)
+    {
+        EstaCarregando = true;
+        MensagemErro = null;
+        try
+        {
+            await apiClient.RemoverPlantaAsync(item.Planta.Id);
+            Plantas.Remove(item);
+        }
+        catch (Exception ex)
+        {
+            MensagemErro = $"Não foi possível excluir a planta: {ex.Message}";
+        }
+        finally
+        {
+            EstaCarregando = false;
+        }
+    }
 }

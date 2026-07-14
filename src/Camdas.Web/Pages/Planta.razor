@@ -3,6 +3,7 @@
 @using Camdas.Mobile.ViewModels
 @implements IDisposable
 @inject PlantaViewModel ViewModel
+@inject IJSRuntime JS
 @using SkiaSharp
 @using SkiaSharp.Views.Blazor
 
@@ -59,6 +60,8 @@
                         <button class="camada-seta" @onclick="() => MoverAsync(camada, paraCima: true)">▲</button>
                         <button class="camada-seta" @onclick="() => MoverAsync(camada, paraCima: false)">▼</button>
                     </div>
+
+                    <button class="camada-icone camada-excluir" title="Excluir camada" @onclick="() => ExcluirCamadaAsync(camada)">🗑</button>
                 </div>
             }
         </div>
@@ -162,6 +165,16 @@
             return;
 
         await ViewModel.DefinirOpacidadeAsync(camada, opacidade);
+        _canvasView?.Invalidate();
+    }
+
+    private async Task ExcluirCamadaAsync(Camdas.Contracts.CamadaDto camada)
+    {
+        var confirmar = await JS.InvokeAsync<bool>("confirm", $"Excluir a camada '{camada.Nome}'? O traço dela some, sem volta.");
+        if (!confirmar)
+            return;
+
+        await ViewModel.RemoverCamadaAsync(camada);
         _canvasView?.Invalidate();
     }
 

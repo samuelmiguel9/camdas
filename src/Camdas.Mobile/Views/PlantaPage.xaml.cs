@@ -75,6 +75,19 @@ public partial class PlantaPage : ContentPage
 
     private void OnAjustarZoomClicked(object? sender, EventArgs e) => AjustarZoomParaTela();
 
+    private async void OnExcluirCamadaClicked(object? sender, EventArgs e)
+    {
+        if (sender is not Button { CommandParameter: CamadaDto camada })
+            return;
+
+        var confirmar = await DisplayAlert(
+            "Excluir camada", $"Excluir a camada '{camada.Nome}'? O traço dela some, sem volta.", "Excluir", "Cancelar");
+        if (!confirmar)
+            return;
+
+        await _viewModel.RemoverCamadaAsync(camada);
+    }
+
     private async void OnOpacidadeSliderDragCompleted(object? sender, EventArgs e)
     {
         if (sender is not Slider slider || slider.BindingContext is not CamadaDto camada)

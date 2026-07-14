@@ -13,23 +13,35 @@
 
         <ActivityIndicator Grid.Row="1" IsRunning="{Binding EstaCarregando}" IsVisible="{Binding EstaCarregando}" />
 
-        <CollectionView Grid.Row="2" ItemsSource="{Binding Plantas}"
-                        SelectionMode="Single" SelectionChangedCommand="{Binding SelecionarPlantaCommand}"
-                        SelectionChangedCommandParameter="{Binding SelectedItem, Source={RelativeSource Self}}">
+        <!-- Sem SelectionMode/SelectionChangedCommand de propósito: um CollectionView com seleção
+             não dispara o comando de novo ao tocar no item já selecionado (ex.: você abre a planta A,
+             volta, toca em A de novo — nada acontece, porque pra ele a "seleção" não mudou). Um
+             TapGestureRecognizer por item dispara sempre, independente de seleção anterior (bug
+             reportado: só conseguia entrar na planta clicando em outra antes). -->
+        <CollectionView Grid.Row="2" ItemsSource="{Binding Plantas}">
             <CollectionView.ItemTemplate>
                 <DataTemplate x:DataType="vm:PlantaListItemViewModel">
-                    <Grid Padding="12" ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="12">
+                    <Grid Padding="12" ColumnDefinitions="*,Auto,Auto" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="12">
+                        <Grid.GestureRecognizers>
+                            <TapGestureRecognizer
+                                Command="{Binding BindingContext.SelecionarPlantaCommand, Source={RelativeSource AncestorType={x:Type ContentPage}}}"
+                                CommandParameter="{Binding .}" />
+                        </Grid.GestureRecognizers>
+
                         <Label Grid.Row="0" Grid.Column="0" Text="{Binding Planta.Nome}" FontAttributes="Bold" LineBreakMode="TailTruncation" />
                         <Label Grid.Row="1" Grid.Column="0" Text="{Binding Planta.DataImportacao, StringFormat='{0:dd/MM/yyyy}'}" TextColor="Gray" />
                         <Label Grid.Row="2" Grid.Column="0" Text="{Binding Planta.NomeCliente, StringFormat='Cliente: {0}'}"
                                TextColor="Gray" FontSize="12"
                                IsVisible="{Binding Planta.NomeCliente, Converter={StaticResource StringNaoVazioParaBoolConverter}}" />
 
-                        <!-- Pré-visualização atualizada da planta (base + camadas), do lado oposto ao nome. -->
+                        <!-- Pré-visualização atualizada da planta (base + camadas). -->
                         <Border Grid.Row="0" Grid.RowSpan="3" Grid.Column="1"
                                 WidthRequest="64" HeightRequest="64" StrokeShape="RoundRectangle 6" Stroke="#D0D0D0">
                             <Image Source="{Binding MiniaturaPng, Converter={StaticResource BytesParaImageSourceConverter}}" Aspect="AspectFill" />
                         </Border>
+
+                        <Button Grid.Row="0" Grid.RowSpan="3" Grid.Column="2" Text="Excluir"
+                                CommandParameter="{Binding .}" Clicked="OnExcluirPlantaClicked" VerticalOptions="Center" />
                     </Grid>
                 </DataTemplate>
             </CollectionView.ItemTemplate>
