@@ -8,13 +8,27 @@
     x:DataType="vm:CamadaEdicaoViewModel"
     Title="{Binding Camada.Nome}">
 
-    <Grid Padding="8" RowDefinitions="Auto,*,Auto,Auto" RowSpacing="6">
+    <Grid Padding="8" RowDefinitions="Auto,Auto,*,Auto,Auto" RowSpacing="6">
+
+        <!-- Barra de ferramentas no topo, estilo SketchBook: ícones centralizados, fundo claro. -->
+        <Border Grid.Row="0" StrokeShape="RoundRectangle 8" Stroke="#D8D0C0" BackgroundColor="#F5F1E8"
+                Padding="10,4" HorizontalOptions="Center">
+            <HorizontalStackLayout Spacing="14">
+                <Button Text="↶" FontSize="20" Padding="6,0" BackgroundColor="Transparent" TextColor="#333"
+                        Clicked="OnDesfazerClicked" />
+                <Button Text="↷" FontSize="20" Padding="6,0" BackgroundColor="Transparent" TextColor="#333"
+                        Clicked="OnRefazerClicked" />
+                <BoxView WidthRequest="1" HeightRequest="24" Color="#D8D0C0" />
+                <Button x:Name="BotaoTexto" Text="T" FontSize="18" FontAttributes="Bold" Padding="8,0"
+                        BackgroundColor="Transparent" TextColor="#333" Clicked="OnAlternarModoTextoClicked" />
+            </HorizontalStackLayout>
+        </Border>
 
         <!-- Zoom: mesmo controle da tela de visualização (PlantaPage) — aqui o traço é sempre
              armazenado na resolução nativa da planta (Canvas.UsarResolucaoNativa=true, definido no
              code-behind), então desenhar com zoom não distorce nem depende do tamanho da tela do
              aparelho. -->
-        <HorizontalStackLayout Grid.Row="0" Spacing="8">
+        <HorizontalStackLayout Grid.Row="1" Spacing="8">
             <Label Text="Zoom" VerticalOptions="Center" />
             <Button Text="−" WidthRequest="36" Clicked="OnDiminuirZoomClicked" />
             <Slider x:Name="ZoomSlider" Minimum="0.25" Maximum="3" Value="1" WidthRequest="120"
@@ -24,7 +38,7 @@
         </HorizontalStackLayout>
 
         <!-- ScrollView permite percorrer a planta quando o zoom deixa o conteúdo maior que a tela. -->
-        <ScrollView Grid.Row="1" Orientation="Both">
+        <ScrollView Grid.Row="2" Orientation="Both">
             <views:PlantaCanvasView
                 x:Name="Canvas"
                 Camadas="{Binding Camadas}"
@@ -36,7 +50,7 @@
                 ModoApagar="{Binding ModoApagar}" />
         </ScrollView>
 
-        <VerticalStackLayout Grid.Row="2" Spacing="4">
+        <VerticalStackLayout Grid.Row="3" Spacing="4">
             <HorizontalStackLayout Spacing="6">
                 <Button BackgroundColor="#000000" WidthRequest="32" HeightRequest="32" CommandParameter="#000000" Clicked="OnCorClicked" />
                 <Button BackgroundColor="#E74C3C" WidthRequest="32" HeightRequest="32" CommandParameter="#E74C3C" Clicked="OnCorClicked" />
@@ -59,6 +73,6 @@
             </HorizontalStackLayout>
         </VerticalStackLayout>
 
-        <Label Grid.Row="3" Text="{Binding MensagemErro}" TextColor="Red" />
+        <Label Grid.Row="4" Text="{Binding MensagemErro}" TextColor="Red" />
     </Grid>
 </ContentPage>

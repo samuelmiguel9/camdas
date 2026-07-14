@@ -53,6 +53,22 @@ public sealed class CamadasController(ISender mediator) : ControllerBase
     public async Task<ActionResult<CamadaDto>> Desbloquear(Guid plantaId, Guid camadaId, CancellationToken ct) =>
         Ok(await mediator.Send(new DesbloquearCamadaCommand(plantaId, camadaId), ct));
 
+    [HttpPost("{camadaId:guid}/bloqueio-alpha")]
+    public async Task<ActionResult<CamadaDto>> BloquearAlpha(Guid plantaId, Guid camadaId, CancellationToken ct) =>
+        Ok(await mediator.Send(new BloquearAlphaCamadaCommand(plantaId, camadaId), ct));
+
+    [HttpDelete("{camadaId:guid}/bloqueio-alpha")]
+    public async Task<ActionResult<CamadaDto>> DesbloquearAlpha(Guid plantaId, Guid camadaId, CancellationToken ct) =>
+        Ok(await mediator.Send(new DesbloquearAlphaCamadaCommand(plantaId, camadaId), ct));
+
+    [HttpPost("{camadaId:guid}/limpar")]
+    public async Task<ActionResult<CamadaDto>> Limpar(Guid plantaId, Guid camadaId, CancellationToken ct) =>
+        Ok(await mediator.Send(new LimparCamadaCommand(plantaId, camadaId), ct));
+
+    [HttpPost("{camadaId:guid}/duplicar")]
+    public async Task<ActionResult<CamadaDto>> Duplicar(Guid plantaId, Guid camadaId, CancellationToken ct) =>
+        Ok(await mediator.Send(new DuplicarCamadaCommand(plantaId, camadaId), ct));
+
     [HttpPut("{camadaId:guid}/imagem")]
     [RequestSizeLimit(10_000_000)]
     public async Task<ActionResult<CamadaDto>> AtualizarImagem(

@@ -14,6 +14,7 @@ public sealed class Camada : Entity
     public string Nome { get; private set; } = null!;
     public bool Visivel { get; private set; }
     public bool Bloqueada { get; private set; }
+    public bool BloqueioAlpha { get; private set; }
     public int Ordem { get; private set; }
     public double Opacidade { get; private set; }
     public string? ImagemRasterCaminho { get; private set; }
@@ -51,6 +52,10 @@ public sealed class Camada : Entity
 
     internal void Desbloquear() => Bloqueada = false;
 
+    internal void BloquearAlpha() => BloqueioAlpha = true;
+
+    internal void DesbloquearAlpha() => BloqueioAlpha = false;
+
     internal void DefinirOrdem(int ordem) => Ordem = ordem;
 
     internal void AtualizarImagemRaster(string caminho)
@@ -61,6 +66,28 @@ public sealed class Camada : Entity
             throw new DomainException("Caminho da imagem raster é obrigatório.");
 
         ImagemRasterCaminho = caminho;
+    }
+
+    /// <summary>Esvazia o traço da camada sem excluí-la — a camada permanece na lista, só perde a imagem raster.</summary>
+    internal void Limpar()
+    {
+        GarantirDesbloqueada();
+        ImagemRasterCaminho = null;
+    }
+
+    /// <summary>
+    /// Cria uma cópia com nome/opacidade/visibilidade iguais aos desta camada, sempre desbloqueada
+    /// (senão a cópia nasceria travada para edição) e sem imagem — o caller (Application) é quem
+    /// duplica o arquivo raster, já que Domain não conhece IArquivoStorage.
+    /// </summary>
+    internal Camada Duplicar(int ordem)
+    {
+        var copia = new Camada(PlantaId, $"{Nome} (cópia)", ordem);
+        copia.DefinirOpacidade(Opacidade);
+        if (!Visivel)
+            copia.AlternarVisibilidade();
+
+        return copia;
     }
 
     private void GarantirDesbloqueada()

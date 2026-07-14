@@ -15,5 +15,9 @@ public enum TipoAcaoHistorico
     CamadaDesbloqueada,
     CamadaImagemAtualizada,
     CamadaReordenada,
-    CamadaOpacidadeAlterada
+    CamadaOpacidadeAlterada,
+    CamadaAlphaBloqueado,
+    CamadaAlphaDesbloqueado,
+    CamadaLimpada,
+    CamadaDuplicada
 }

@@ -12,7 +12,7 @@ namespace Camdas.Mobile.ViewModels;
 /// (nenhuma outra camada aparece), pra desenhar sem distração. Ao salvar, volta pra tela principal
 /// da planta, que recarrega e mostra todas as camadas juntas.
 /// </summary>
-public partial class CamadaEdicaoViewModel(IApiClient apiClient) : BaseViewModel
+public partial class CamadaEdicaoViewModel(IApiClient apiClient, IArmazenamentoRascunho armazenamentoRascunho) : BaseViewModel
 {
     private Guid _plantaId;
 
@@ -77,6 +77,16 @@ public partial class CamadaEdicaoViewModel(IApiClient apiClient) : BaseViewModel
                 var bytesCamada = await apiClient.ObterImagemCamadaAsync(plantaId, camadaId);
                 ImagensPorCamada[camadaId] = SKBitmap.Decode(bytesCamada);
             }
+
+            // Rascunho local mais recente que o que está no servidor (ex.: o app fechou antes de
+            // "Salvar camada") — carrega por cima, sem perguntar, pra não perder o trabalho.
+            var rascunho = await armazenamentoRascunho.CarregarAsync(camadaId);
+            if (rascunho is { Length: > 0 })
+            {
+                if (ImagensPorCamada.Remove(camadaId, out var bitmapAnterior))
+                    bitmapAnterior.Dispose();
+                ImagensPorCamada[camadaId] = SKBitmap.Decode(rascunho);
+            }
         }
         catch (Exception ex)
         {
@@ -86,6 +96,18 @@ public partial class CamadaEdicaoViewModel(IApiClient apiClient) : BaseViewModel
         {
             EstaCarregando = false;
         }
+    }
+
+    /// <summary>Chamado a cada alteração no canvas (Canvas.DesenhoAlterado) — guarda uma cópia local
+    /// pra não perder o traço se o app fechar antes de "Salvar camada" mandar pro servidor.</summary>
+    public async Task SalvarRascunhoAsync()
+    {
+        if (Camada is null || !ImagensPorCamada.TryGetValue(Camada.Id, out var bitmap))
+            return;
+
+        using var imagem = SKImage.FromBitmap(bitmap);
+        using var dados = imagem.Encode(SKEncodedImageFormat.Png, 100);
+        await armazenamentoRascunho.SalvarAsync(Camada.Id, dados.ToArray());
     }
 
     [RelayCommand]
@@ -106,6 +128,7 @@ public partial class CamadaEdicaoViewModel(IApiClient apiClient) : BaseViewModel
             using var stream = dados.AsStream();
 
             await apiClient.AtualizarImagemCamadaAsync(_plantaId, Camada.Id, stream);
+            armazenamentoRascunho.Remover(Camada.Id);
             CamadaSalva?.Invoke(this, EventArgs.Empty);
         }
         catch (Exception ex)

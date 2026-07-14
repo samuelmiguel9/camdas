@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using Camdas.Contracts;
+using Camdas.Mobile.Rendering;
 using Camdas.Mobile.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -13,7 +14,7 @@ namespace Camdas.Mobile.ViewModels;
 /// acontece numa tela isolada por camada (<see cref="CamadaEdicaoViewModel"/>/CamadaEdicaoPage), pra
 /// não misturar o traço de uma camada nova com as demais enquanto ela está sendo criada/editada.
 /// </summary>
-public partial class PlantaViewModel(IApiClient apiClient) : BaseViewModel
+public partial class PlantaViewModel(IApiClient apiClient, ISalvadorGaleria salvadorGaleria) : BaseViewModel
 {
     [ObservableProperty]
     private PlantaDto? _planta;
@@ -23,6 +24,10 @@ public partial class PlantaViewModel(IApiClient apiClient) : BaseViewModel
 
     [ObservableProperty]
     private SKBitmap? _imagemBase;
+
+    /// <summary>Camada com o menu de opções (opacidade/limpar/bloqueios/duplicar/excluir) aberto — null quando fechado.</summary>
+    [ObservableProperty]
+    private CamadaDto? _camadaMenuAberta;
 
     public ObservableCollection<CamadaDto> Camadas { get; } = [];
 
@@ -106,23 +111,97 @@ public partial class PlantaViewModel(IApiClient apiClient) : BaseViewModel
         }
     }
 
+    /// <summary>Compõe a imagem base + todas as camadas visíveis (mesma lógica de desenho da tela)
+    /// num PNG só e salva na galeria do aparelho — "Salvar tudo".</summary>
+    public async Task SalvarComposicaoNaGaleriaAsync()
+    {
+        if (Planta is null || ImagemBase is null)
+            return;
+
+        EstaCarregando = true;
+        MensagemErro = null;
+        try
+        {
+            using var bitmap = new SKBitmap(ImagemBase.Width, ImagemBase.Height);
+            using (var canvas = new SKCanvas(bitmap))
+                PlantaOverlayRenderer.Desenhar(canvas, Camadas, ImagemBase, ImagensPorCamada);
+
+            using var imagem = SKImage.FromBitmap(bitmap);
+            using var dados = imagem.Encode(SKEncodedImageFormat.Png, 100);
+
+            var nomeArquivo = $"{Planta.Nome}_{DateTime.Now:yyyyMMdd_HHmmss}.png";
+            await salvadorGaleria.SalvarPngAsync(dados.ToArray(), nomeArquivo);
+        }
+        catch (Exception ex)
+        {
+            MensagemErro = $"Não foi possível salvar na galeria: {ex.Message}";
+        }
+        finally
+        {
+            EstaCarregando = false;
+        }
+    }
+
     /// <summary>
-    /// Troca a prioridade da camada com a vizinha imediatamente acima/abaixo na lista e persiste a
-    /// nova ordem no servidor, que devolve a lista já renumerada em ordem crescente. Botões
-    /// "subir"/"descer" em vez de arrastar-e-soltar — mais confiável em toque no Android.
+    /// Cria uma camada nova a partir de uma imagem já pronta (galeria/câmera) em vez de traço
+    /// desenhado à mão — redimensiona pra bater com o tamanho da planta base, senão a imagem
+    /// importada ficaria desalinhada/cortada ao compor com as demais camadas.
     /// </summary>
-    public async Task MoverCamadaAsync(CamadaDto camada, bool paraCima)
+    public async Task AdicionarImagemComoCamadaAsync(string nome, Stream conteudoImagem)
+    {
+        if (Planta is null || ImagemBase is null)
+            return;
+
+        EstaCarregando = true;
+        MensagemErro = null;
+        try
+        {
+            using var bitmapOriginal = SKBitmap.Decode(conteudoImagem);
+            if (bitmapOriginal is null)
+                throw new InvalidOperationException("Não foi possível ler a imagem selecionada.");
+
+            using var bitmapRedimensionado = bitmapOriginal.Resize(
+                new SKImageInfo(ImagemBase.Width, ImagemBase.Height), SKFilterQuality.Medium);
+            using var imagem = SKImage.FromBitmap(bitmapRedimensionado ?? bitmapOriginal);
+            using var dados = imagem.Encode(SKEncodedImageFormat.Png, 100);
+            using var streamPng = dados.AsStream();
+
+            var camada = await apiClient.CriarCamadaAsync(Planta.Id, nome);
+            var camadaComImagem = await apiClient.AtualizarImagemCamadaAsync(Planta.Id, camada.Id, streamPng);
+
+            Camadas.Add(camadaComImagem);
+            CamadaAtiva = camadaComImagem;
+            ImagensPorCamada[camadaComImagem.Id] = SKBitmap.Decode(await apiClient.ObterImagemCamadaAsync(Planta.Id, camadaComImagem.Id));
+        }
+        catch (Exception ex)
+        {
+            MensagemErro = $"Não foi possível adicionar a imagem como camada: {ex.Message}";
+        }
+        finally
+        {
+            EstaCarregando = false;
+        }
+    }
+
+    /// <summary>
+    /// Move a camada arrastada (<paramref name="origem"/>) pra posição da camada onde ela foi solta
+    /// (<paramref name="destino"/>) e persiste a nova ordem no servidor, que devolve a lista já
+    /// renumerada em ordem crescente.
+    /// </summary>
+    public async Task ReordenarArrastandoAsync(CamadaDto origem, CamadaDto destino)
     {
         if (Planta is null)
             return;
 
-        var indice = Camadas.IndexOf(camada);
-        var novoIndice = paraCima ? indice - 1 : indice + 1;
-        if (indice < 0 || novoIndice < 0 || novoIndice >= Camadas.Count)
+        var indiceOrigem = Camadas.IndexOf(origem);
+        var indiceDestino = Camadas.IndexOf(destino);
+        if (indiceOrigem < 0 || indiceDestino < 0 || indiceOrigem == indiceDestino)
             return;
 
         var ids = Camadas.Select(c => c.Id).ToList();
-        (ids[indice], ids[novoIndice]) = (ids[novoIndice], ids[indice]);
+        var idOrigem = ids[indiceOrigem];
+        ids.RemoveAt(indiceOrigem);
+        ids.Insert(indiceDestino, idOrigem);
 
         EstaCarregando = true;
         MensagemErro = null;
@@ -146,10 +225,10 @@ public partial class PlantaViewModel(IApiClient apiClient) : BaseViewModel
     }
 
     [RelayCommand]
-    private Task MoverCamadaParaCimaAsync(CamadaDto camada) => MoverCamadaAsync(camada, paraCima: true);
+    private void AbrirMenuCamada(CamadaDto camada) => CamadaMenuAberta = camada;
 
     [RelayCommand]
-    private Task MoverCamadaParaBaixoAsync(CamadaDto camada) => MoverCamadaAsync(camada, paraCima: false);
+    private void FecharMenuCamada() => CamadaMenuAberta = null;
 
     [RelayCommand]
     private void SelecionarCamada(CamadaDto camada)
@@ -228,6 +307,8 @@ public partial class PlantaViewModel(IApiClient apiClient) : BaseViewModel
 
             if (CamadaAtiva?.Id == camada.Id)
                 CamadaAtiva = Camadas.FirstOrDefault();
+            if (CamadaMenuAberta?.Id == camada.Id)
+                CamadaMenuAberta = null;
         }
         catch (Exception ex)
         {
@@ -236,6 +317,75 @@ public partial class PlantaViewModel(IApiClient apiClient) : BaseViewModel
         finally
         {
             EstaCarregando = false;
+        }
+    }
+
+    /// <summary>Esvazia o traço da camada (fica em branco) sem excluí-la — usado pelo menu de opções da camada.</summary>
+    [RelayCommand]
+    private async Task LimparCamadaAsync(CamadaDto camada)
+    {
+        if (Planta is null)
+            return;
+
+        try
+        {
+            var atualizada = await apiClient.LimparCamadaAsync(Planta.Id, camada.Id);
+            SubstituirCamada(atualizada);
+            if (ImagensPorCamada.Remove(camada.Id, out var bitmap))
+                bitmap.Dispose();
+        }
+        catch (Exception ex)
+        {
+            MensagemErro = $"Não foi possível limpar a camada: {ex.Message}";
+        }
+    }
+
+    /// <summary>Cria uma cópia da camada (nome, opacidade, visibilidade e traço) logo abaixo dela.</summary>
+    [RelayCommand]
+    private async Task DuplicarCamadaAsync(CamadaDto camada)
+    {
+        if (Planta is null)
+            return;
+
+        EstaCarregando = true;
+        MensagemErro = null;
+        try
+        {
+            var copia = await apiClient.DuplicarCamadaAsync(Planta.Id, camada.Id);
+            Camadas.Add(copia);
+            if (copia.TemImagemRaster)
+                ImagensPorCamada[copia.Id] = SKBitmap.Decode(await apiClient.ObterImagemCamadaAsync(Planta.Id, copia.Id));
+
+            CamadaMenuAberta = null;
+        }
+        catch (Exception ex)
+        {
+            MensagemErro = $"Não foi possível duplicar a camada: {ex.Message}";
+        }
+        finally
+        {
+            EstaCarregando = false;
+        }
+    }
+
+    /// <summary>Bloqueio de opacidade/alpha — impede alterar a transparência do traço já pintado.</summary>
+    [RelayCommand]
+    private async Task AlternarBloqueioAlphaAsync(CamadaDto camada)
+    {
+        if (Planta is null)
+            return;
+
+        try
+        {
+            var atualizada = camada.BloqueioAlpha
+                ? await apiClient.DesbloquearAlphaCamadaAsync(Planta.Id, camada.Id)
+                : await apiClient.BloquearAlphaCamadaAsync(Planta.Id, camada.Id);
+
+            SubstituirCamada(atualizada);
+        }
+        catch (Exception ex)
+        {
+            MensagemErro = $"Não foi possível alterar o bloqueio de opacidade: {ex.Message}";
         }
     }
 
@@ -252,5 +402,7 @@ public partial class PlantaViewModel(IApiClient apiClient) : BaseViewModel
 
         if (CamadaAtiva?.Id == atualizada.Id)
             CamadaAtiva = atualizada;
+        if (CamadaMenuAberta?.Id == atualizada.Id)
+            CamadaMenuAberta = atualizada;
     }
 }

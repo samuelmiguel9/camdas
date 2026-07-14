@@ -22,6 +22,17 @@ namespace Camdas.Mobile.Views;
 /// </summary>
 public sealed class PlantaCanvasView : SKCanvasView
 {
+    /// <summary>Uma ação de desenho (traço ou texto), guardada pra permitir desfazer/refazer sem
+    /// apagar a camada inteira — o bitmap é reconstruído do zero reaplicando as ações restantes,
+    /// já que o desenho é raster (não dá pra "remover" uma pincelada específica de outro jeito).</summary>
+    private abstract record AcaoDesenho;
+    private sealed record AcaoTraco(List<SKPoint> Pontos, string Cor, float Espessura, bool Apagar) : AcaoDesenho;
+    private sealed record AcaoTexto(string Texto, SKPoint Posicao, string Cor, float TamanhoFonte) : AcaoDesenho;
+
+    private readonly List<AcaoDesenho> _historico = [];
+    private readonly Stack<AcaoDesenho> _desfeitas = [];
+    private AcaoTraco? _tracoEmAndamento;
+
     public static readonly BindableProperty CamadasProperty = BindableProperty.Create(
         nameof(Camadas), typeof(IReadOnlyList<CamadaDto>), typeof(PlantaCanvasView),
         defaultValue: null,
@@ -73,6 +84,12 @@ public sealed class PlantaCanvasView : SKCanvasView
 
     public static readonly BindableProperty ModoApagarProperty = BindableProperty.Create(
         nameof(ModoApagar), typeof(bool), typeof(PlantaCanvasView), defaultValue: false);
+
+    /// <summary>Quando true, um toque no canvas não desenha — dispara <see cref="SolicitarTexto"/>
+    /// pra a Page pedir o texto (a Page decide como pedir: DisplayPromptAsync, etc.) e chamar
+    /// <see cref="AdicionarTexto"/> de volta.</summary>
+    public static readonly BindableProperty ModoTextoProperty = BindableProperty.Create(
+        nameof(ModoTexto), typeof(bool), typeof(PlantaCanvasView), defaultValue: false);
 
     /// <summary>Fator de escala visual aplicado via canvas.Scale quando <see cref="UsarResolucaoNativa"/>
     /// é true — não afeta a resolução em que o traço é armazenado, só o zoom da visualização/edição.</summary>
@@ -143,6 +160,15 @@ public sealed class PlantaCanvasView : SKCanvasView
         set => SetValue(ModoApagarProperty, value);
     }
 
+    public bool ModoTexto
+    {
+        get => (bool)GetValue(ModoTextoProperty);
+        set => SetValue(ModoTextoProperty, value);
+    }
+
+    /// <summary>Ponto (resolução nativa da imagem base) onde o usuário tocou em modo texto.</summary>
+    public event EventHandler<SKPoint>? SolicitarTexto;
+
     public float Zoom
     {
         get => (float)GetValue(ZoomProperty);
@@ -173,9 +199,107 @@ public sealed class PlantaCanvasView : SKCanvasView
         var bitmap = ObterOuCriarBitmapDaCamada(camadaId);
         using var canvas = new SKCanvas(bitmap);
         canvas.Clear(SKColors.Transparent);
+        _historico.Clear();
+        _desfeitas.Clear();
 
         DesenhoAlterado?.Invoke(this, EventArgs.Empty);
         InvalidateSurface();
+    }
+
+    public bool TemAcaoParaDesfazer => _historico.Count > 0;
+    public bool TemAcaoParaRefazer => _desfeitas.Count > 0;
+
+    public void DesfazerUltimaAcao()
+    {
+        if (_historico.Count == 0)
+            return;
+
+        var acao = _historico[^1];
+        _historico.RemoveAt(_historico.Count - 1);
+        _desfeitas.Push(acao);
+        RedesenharDoHistorico();
+    }
+
+    public void RefazerAcao()
+    {
+        if (_desfeitas.Count == 0)
+            return;
+
+        var acao = _desfeitas.Pop();
+        _historico.Add(acao);
+        RedesenharDoHistorico();
+    }
+
+    /// <summary>Escreve texto na camada ativa na posição indicada (coordenadas na resolução nativa
+    /// da imagem base) — entra no histórico igual a um traço, pra poder desfazer.</summary>
+    public void AdicionarTexto(string texto, SKPoint posicao, string cor, float tamanhoFonte)
+    {
+        if (CamadaAtivaId is not { } camadaId || ImagensPorCamada is null || string.IsNullOrWhiteSpace(texto))
+            return;
+
+        var acao = new AcaoTexto(texto, posicao, cor, tamanhoFonte);
+        var bitmap = ObterOuCriarBitmapDaCamada(camadaId);
+        using (var canvas = new SKCanvas(bitmap))
+            DesenharAcao(canvas, acao);
+
+        _historico.Add(acao);
+        _desfeitas.Clear();
+
+        DesenhoAlterado?.Invoke(this, EventArgs.Empty);
+        InvalidateSurface();
+    }
+
+    private void RedesenharDoHistorico()
+    {
+        if (CamadaAtivaId is not { } camadaId || ImagensPorCamada is null)
+            return;
+
+        var bitmap = ObterOuCriarBitmapDaCamada(camadaId);
+        using var canvas = new SKCanvas(bitmap);
+        canvas.Clear(SKColors.Transparent);
+        foreach (var acao in _historico)
+            DesenharAcao(canvas, acao);
+
+        DesenhoAlterado?.Invoke(this, EventArgs.Empty);
+        InvalidateSurface();
+    }
+
+    private static void DesenharAcao(SKCanvas canvas, AcaoDesenho acao)
+    {
+        switch (acao)
+        {
+            case AcaoTraco traco:
+                DesenharTraco(canvas, traco);
+                break;
+            case AcaoTexto texto:
+                using (var paint = new SKPaint { IsAntialias = true, Color = SKColor.Parse(texto.Cor) })
+                using (var fonte = new SKFont(SKTypeface.Default, texto.TamanhoFonte))
+                    canvas.DrawText(texto.Texto, texto.Posicao.X, texto.Posicao.Y, fonte, paint);
+                break;
+        }
+    }
+
+    private static void DesenharTraco(SKCanvas canvas, AcaoTraco traco)
+    {
+        using var paint = new SKPaint
+        {
+            IsAntialias = true,
+            Style = SKPaintStyle.Stroke,
+            StrokeCap = SKStrokeCap.Round,
+            StrokeJoin = SKStrokeJoin.Round,
+            StrokeWidth = traco.Espessura,
+            BlendMode = traco.Apagar ? SKBlendMode.Clear : SKBlendMode.SrcOver,
+            Color = traco.Apagar ? SKColors.Transparent : SKColor.Parse(traco.Cor),
+        };
+
+        if (traco.Pontos.Count == 1)
+        {
+            canvas.DrawCircle(traco.Pontos[0], traco.Espessura / 2, paint);
+            return;
+        }
+
+        for (var i = 1; i < traco.Pontos.Count; i++)
+            canvas.DrawLine(traco.Pontos[i - 1], traco.Pontos[i], paint);
     }
 
     protected override void OnPaintSurface(SKPaintSurfaceEventArgs e)
@@ -244,6 +368,15 @@ public sealed class PlantaCanvasView : SKCanvasView
             ? new SKPoint(e.Location.X / Zoom, e.Location.Y / Zoom)
             : e.Location;
 
+        if (ModoTexto)
+        {
+            if (e.ActionType == SKTouchAction.Pressed)
+                SolicitarTexto?.Invoke(this, ponto);
+
+            e.Handled = true;
+            return;
+        }
+
         var bitmap = ObterOuCriarBitmapDaCamada(camadaId);
         using var canvasBitmap = new SKCanvas(bitmap);
         using var paint = new SKPaint
@@ -262,13 +395,21 @@ public sealed class PlantaCanvasView : SKCanvasView
             case SKTouchAction.Pressed:
                 canvasBitmap.DrawCircle(ponto, EspessuraTraco / 2, paint);
                 _ultimoPontoToque = ponto;
+                _tracoEmAndamento = new AcaoTraco([ponto], CorTraco, EspessuraTraco, ModoApagar);
+                _desfeitas.Clear();
                 break;
             case SKTouchAction.Moved when _ultimoPontoToque is { } ultimo:
                 canvasBitmap.DrawLine(ultimo, ponto, paint);
                 _ultimoPontoToque = ponto;
+                _tracoEmAndamento?.Pontos.Add(ponto);
                 break;
             case SKTouchAction.Released:
                 _ultimoPontoToque = null;
+                if (_tracoEmAndamento is not null)
+                {
+                    _historico.Add(_tracoEmAndamento);
+                    _tracoEmAndamento = null;
+                }
                 DesenhoAlterado?.Invoke(this, EventArgs.Empty);
                 break;
         }

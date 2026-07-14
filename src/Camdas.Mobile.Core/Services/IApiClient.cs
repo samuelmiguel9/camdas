@@ -32,6 +32,10 @@ public interface IApiClient
     Task<CamadaDto> DefinirOpacidadeCamadaAsync(Guid plantaId, Guid camadaId, double opacidade, CancellationToken ct = default);
     Task<CamadaDto> BloquearCamadaAsync(Guid plantaId, Guid camadaId, CancellationToken ct = default);
     Task<CamadaDto> DesbloquearCamadaAsync(Guid plantaId, Guid camadaId, CancellationToken ct = default);
+    Task<CamadaDto> BloquearAlphaCamadaAsync(Guid plantaId, Guid camadaId, CancellationToken ct = default);
+    Task<CamadaDto> DesbloquearAlphaCamadaAsync(Guid plantaId, Guid camadaId, CancellationToken ct = default);
+    Task<CamadaDto> LimparCamadaAsync(Guid plantaId, Guid camadaId, CancellationToken ct = default);
+    Task<CamadaDto> DuplicarCamadaAsync(Guid plantaId, Guid camadaId, CancellationToken ct = default);
     Task<byte[]> ObterImagemCamadaAsync(Guid plantaId, Guid camadaId, CancellationToken ct = default);
     Task<CamadaDto> AtualizarImagemCamadaAsync(Guid plantaId, Guid camadaId, Stream conteudoPng, CancellationToken ct = default);
 

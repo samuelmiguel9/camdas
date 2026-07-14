@@ -53,6 +53,9 @@ if (string.Equals(builder.Configuration["ArmazenamentoArquivos:Tipo"], "S3", Str
         {
             ServiceURL = builder.Configuration["ArmazenamentoArquivos:S3:EndpointUrl"],
             ForcePathStyle = true, // exigido por endpoints S3-compatíveis fora da AWS
+            // Sem a região certa, a assinatura da requisição (SigV4) fica inválida e o Supabase
+            // Storage recusa com 403 Forbidden — foi exatamente o bug relatado depois do deploy.
+            AuthenticationRegion = builder.Configuration["ArmazenamentoArquivos:S3:Region"] ?? "us-east-1",
         }));
     builder.Services.AddSingleton<IArquivoStorage>(provedor => new ArquivoStorageS3(
         provedor.GetRequiredService<IAmazonS3>(),

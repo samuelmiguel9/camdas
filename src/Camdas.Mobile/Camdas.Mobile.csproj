@@ -20,8 +20,8 @@
 		<ApplicationId>com.companyname.camdas.mobile</ApplicationId>
 
 		<!-- Versions -->
-		<ApplicationDisplayVersion>1.3</ApplicationDisplayVersion>
-		<ApplicationVersion>4</ApplicationVersion>
+		<ApplicationDisplayVersion>1.4</ApplicationDisplayVersion>
+		<ApplicationVersion>5</ApplicationVersion>
 
 		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">21.0</SupportedOSPlatformVersion>
 	</PropertyGroup>

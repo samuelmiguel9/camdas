@@ -12,7 +12,7 @@ namespace Camdas.Mobile.Tests.ViewModels;
 public class CamadaEdicaoViewModelTests
 {
     private static CamadaDto NovaCamada(bool temImagemRaster = false) =>
-        new(Guid.NewGuid(), Guid.NewGuid(), "Hidráulica", true, false, 1, temImagemRaster, 1.0);
+        new(Guid.NewGuid(), Guid.NewGuid(), "Hidráulica", true, false, false, 1, temImagemRaster, 1.0);
 
     private static byte[] PngMinimo()
     {
@@ -32,7 +32,7 @@ public class CamadaEdicaoViewModelTests
         apiClient.ObterPlantaAsync(planta.Id, Arg.Any<CancellationToken>()).Returns(planta);
         apiClient.ObterArquivoPlantaAsync(planta.Id, Arg.Any<CancellationToken>()).Returns(PngMinimo());
 
-        var viewModel = new CamadaEdicaoViewModel(apiClient);
+        var viewModel = new CamadaEdicaoViewModel(apiClient, Substitute.For<IArmazenamentoRascunho>());
         await viewModel.CarregarAsync(planta.Id, camada.Id);
 
         viewModel.Camada.Should().Be(camada);
@@ -53,7 +53,7 @@ public class CamadaEdicaoViewModelTests
         apiClient.AtualizarImagemCamadaAsync(planta.Id, camada.Id, Arg.Any<Stream>(), Arg.Any<CancellationToken>())
             .Returns(camada with { TemImagemRaster = true });
 
-        var viewModel = new CamadaEdicaoViewModel(apiClient);
+        var viewModel = new CamadaEdicaoViewModel(apiClient, Substitute.For<IArmazenamentoRascunho>());
         await viewModel.CarregarAsync(planta.Id, camada.Id);
         viewModel.ImagensPorCamada[camada.Id] = new SKBitmap(4, 4);
 
@@ -76,7 +76,7 @@ public class CamadaEdicaoViewModelTests
         apiClient.ObterPlantaAsync(planta.Id, Arg.Any<CancellationToken>()).Returns(planta);
         apiClient.ObterArquivoPlantaAsync(planta.Id, Arg.Any<CancellationToken>()).Returns(PngMinimo());
 
-        var viewModel = new CamadaEdicaoViewModel(apiClient);
+        var viewModel = new CamadaEdicaoViewModel(apiClient, Substitute.For<IArmazenamentoRascunho>());
         await viewModel.CarregarAsync(planta.Id, camada.Id);
 
         await viewModel.SalvarCommand.ExecuteAsync(null);

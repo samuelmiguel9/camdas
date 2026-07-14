@@ -156,8 +156,17 @@
     private async Task AlternarBloqueioAsync(Camdas.Contracts.CamadaDto camada) =>
         await ViewModel.AlternarBloqueioCommand.ExecuteAsync(camada);
 
-    private async Task MoverAsync(Camdas.Contracts.CamadaDto camada, bool paraCima) =>
-        await ViewModel.MoverCamadaAsync(camada, paraCima);
+    /// <summary>Web não tem arrastar-e-soltar (Mobile trocou pra isso) — reaproveita
+    /// ReordenarArrastandoAsync "movendo" a camada pra posição da vizinha imediata.</summary>
+    private async Task MoverAsync(Camdas.Contracts.CamadaDto camada, bool paraCima)
+    {
+        var indice = ViewModel.Camadas.IndexOf(camada);
+        var indiceVizinho = paraCima ? indice - 1 : indice + 1;
+        if (indice < 0 || indiceVizinho < 0 || indiceVizinho >= ViewModel.Camadas.Count)
+            return;
+
+        await ViewModel.ReordenarArrastandoAsync(camada, ViewModel.Camadas[indiceVizinho]);
+    }
 
     private async Task DefinirOpacidadeAsync(Camdas.Contracts.CamadaDto camada, object? valor)
     {

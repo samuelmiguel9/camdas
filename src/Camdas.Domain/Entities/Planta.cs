@@ -88,6 +88,20 @@ public sealed class Planta : Entity
 
     public void DesbloquearCamada(Guid camadaId) => ObterCamada(camadaId).Desbloquear();
 
+    public void BloquearAlphaCamada(Guid camadaId) => ObterCamada(camadaId).BloquearAlpha();
+
+    public void DesbloquearAlphaCamada(Guid camadaId) => ObterCamada(camadaId).DesbloquearAlpha();
+
+    public void LimparCamada(Guid camadaId) => ObterCamada(camadaId).Limpar();
+
+    /// <summary>Duplica a camada (sem a imagem raster — o caller copia o arquivo e chama AtualizarImagemRasterDaCamada).</summary>
+    public Camada DuplicarCamada(Guid camadaId)
+    {
+        var copia = ObterCamada(camadaId).Duplicar(_camadas.Count + 1);
+        _camadas.Add(copia);
+        return copia;
+    }
+
     /// <summary>
     /// Atualiza o traço livre (raster) da camada com o PNG salvo em <paramref name="caminho"/>.
     /// Respeita o mesmo bloqueio de camada usado por Cotas.

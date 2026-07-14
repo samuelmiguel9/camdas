@@ -27,6 +27,8 @@ services:
         value: S3
       - key: ArmazenamentoArquivos__S3__EndpointUrl
         sync: false
+      - key: ArmazenamentoArquivos__S3__Region
+        sync: false
       - key: ArmazenamentoArquivos__S3__Bucket
         sync: false
       - key: ArmazenamentoArquivos__S3__AccessKey

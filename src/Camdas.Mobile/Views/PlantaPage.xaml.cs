@@ -8,6 +8,7 @@ public partial class PlantaPage : ContentPage
 {
     private readonly PlantaViewModel _viewModel;
     private bool _zoomAjustadoNoCarregamento;
+    private CamadaDto? _camadaArrastada;
 
     public string PlantaId { get; set; } = string.Empty;
 
@@ -96,6 +97,42 @@ public partial class PlantaPage : ContentPage
         await _viewModel.DefinirOpacidadeAsync(camada, slider.Value);
     }
 
+    /// <summary>Guarda a camada da linha que começou a ser arrastada (a recognizer herda o
+    /// BindingContext do item da CollectionView, igual ao slider de opacidade acima).</summary>
+    private void OnCamadaDragStarting(object? sender, DragStartingEventArgs e)
+    {
+        if (sender is DragGestureRecognizer { BindingContext: CamadaDto camada })
+            _camadaArrastada = camada;
+    }
+
+    /// <summary>Soltar uma camada sobre outra move a arrastada pra posição da camada de destino.</summary>
+    private async void OnCamadaDrop(object? sender, DropEventArgs e)
+    {
+        var origem = _camadaArrastada;
+        _camadaArrastada = null;
+        if (origem is null || sender is not DropGestureRecognizer { BindingContext: CamadaDto destino } || origem.Id == destino.Id)
+            return;
+
+        await _viewModel.ReordenarArrastandoAsync(origem, destino);
+    }
+
+    /// <summary>Soltar uma camada na lixeira ao lado da lista exclui ela (com confirmação, mesmo
+    /// texto do botão "Excluir camada" do menu de opções).</summary>
+    private async void OnCamadaDropNaLixeira(object? sender, DropEventArgs e)
+    {
+        var camada = _camadaArrastada;
+        _camadaArrastada = null;
+        if (camada is null)
+            return;
+
+        var confirmar = await DisplayAlert(
+            "Excluir camada", $"Excluir a camada '{camada.Nome}'? O traço dela some, sem volta.", "Excluir", "Cancelar");
+        if (!confirmar)
+            return;
+
+        await _viewModel.RemoverCamadaAsync(camada);
+    }
+
     private async void OnAbrirHistoricoClicked(object? sender, EventArgs e) =>
         await Shell.Current.GoToAsync($"{nameof(HistoricoPage)}?plantaId={PlantaId}");
 
@@ -113,4 +150,56 @@ public partial class PlantaPage : ContentPage
             await Shell.Current.GoToAsync($"{nameof(CamadaEdicaoPage)}?plantaId={PlantaId}&camadaId={camadaCriada.Id}");
     }
 
+    /// <summary>Cria uma camada nova a partir de uma foto/imagem (galeria ou câmera), em vez de
+    /// desenhar à mão — ver PlantaViewModel.AdicionarImagemComoCamadaAsync.</summary>
+    private async void OnAdicionarImagemClicked(object? sender, EventArgs e)
+    {
+        var origem = await DisplayActionSheet("Adicionar imagem — de onde?", "Cancelar", null, "Câmera", "Galeria");
+        if (origem is null || origem == "Cancelar")
+            return;
+
+        FileResult? arquivo = origem == "Câmera"
+            ? await CapturarFotoAsync()
+            : await MediaPicker.Default.PickPhotoAsync();
+
+        if (arquivo is null)
+            return;
+
+        var nome = await DisplayPromptAsync("Nova camada", "Nome da camada", initialValue: "Imagem");
+        if (string.IsNullOrWhiteSpace(nome))
+            return;
+
+        using var conteudo = await arquivo.OpenReadAsync();
+        await _viewModel.AdicionarImagemComoCamadaAsync(nome, conteudo);
+        Canvas.AtualizarPreview();
+    }
+
+    private async Task<FileResult?> CapturarFotoAsync()
+    {
+        if (!MediaPicker.Default.IsCaptureSupported)
+        {
+            await DisplayAlert("Câmera", "Este aparelho não tem câmera disponível.", "OK");
+            return null;
+        }
+
+        return await MediaPicker.Default.CapturePhotoAsync();
+    }
+
+    /// <summary>Em Android 9 (API 28) ou anterior é preciso pedir a permissão de escrita em tempo de
+    /// execução; em versões mais novas (escopo de armazenamento moderno) a MediaStore não exige
+    /// isso, o pedido só retorna concedido automaticamente.</summary>
+    private async void OnSalvarNaGaleriaClicked(object? sender, EventArgs e)
+    {
+        var status = await Permissions.RequestAsync<Permissions.StorageWrite>();
+        if (status != PermissionStatus.Granted)
+        {
+            await DisplayAlert("Salvar na galeria", "Permissão de armazenamento negada.", "OK");
+            return;
+        }
+
+        await _viewModel.SalvarComposicaoNaGaleriaAsync();
+
+        if (_viewModel.MensagemErro is null)
+            await DisplayAlert("Salvar na galeria", "Planta salva na galeria (Pictures/Camdas).", "OK");
+    }
 }
