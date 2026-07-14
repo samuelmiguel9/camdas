@@ -33,3 +33,19 @@ services:
         sync: false
       - key: ArmazenamentoArquivos__S3__SecretKey
         sync: false
+
+  # Camdas.Web (Blazor WebAssembly) publicado como Static Site — instala o SDK .NET manualmente no
+  # build porque a imagem de Static Site do Render não vem com .NET pré-instalado.
+  - type: web
+    name: camdas-web
+    runtime: static
+    buildCommand: >-
+      curl -sSL https://dot.net/v1/dotnet-install.sh | bash /dev/stdin --channel 8.0 --install-dir $HOME/.dotnet &&
+      export PATH="$HOME/.dotnet:$PATH" &&
+      dotnet workload install wasm-tools &&
+      dotnet publish src/Camdas.Web/Camdas.Web.csproj -c Release -o publish_output
+    staticPublishPath: ./publish_output/wwwroot
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
