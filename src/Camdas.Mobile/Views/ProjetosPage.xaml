@@ -5,6 +5,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
     xmlns:vm="clr-namespace:Camdas.Mobile.ViewModels;assembly=Camdas.Mobile.Core"
     xmlns:contracts="clr-namespace:Camdas.Contracts;assembly=Camdas.Contracts"
+    xmlns:services="clr-namespace:Camdas.Mobile.Services;assembly=Camdas.Mobile.Core"
     x:DataType="vm:ProjetosViewModel"
     Title="Projetos">
 
@@ -12,7 +13,7 @@
         <ToolbarItem Text="Relatório" Order="Primary" Clicked="OnAbrirRelatorioClicked" />
     </ContentPage.ToolbarItems>
 
-    <Grid Padding="16" RowDefinitions="Auto,Auto,Auto,*,Auto,Auto" RowSpacing="12">
+    <Grid Padding="16" RowDefinitions="Auto,Auto,Auto,*,Auto,Auto,Auto" RowSpacing="12">
 
         <!-- Aviso de atualização: só aparece quando o release mais recente do GitHub tem uma tag
              diferente da instalada (ver VerificadorAtualizacaoGitHub); "Baixar" abre a página do
@@ -50,5 +51,14 @@
         <Label Grid.Row="4" Text="{Binding MensagemErro}" TextColor="Red" />
 
         <Label Grid.Row="5" Text="developed by Samuel Miguel" HorizontalOptions="Center" TextColor="Gray" FontSize="12" Margin="0,8,0,0" />
+
+        <Label Grid.Row="6" HorizontalOptions="Center" TextColor="Gray" FontSize="10">
+            <Label.FormattedText>
+                <FormattedString>
+                    <Span Text="versão " />
+                    <Span Text="{x:Static services:VerificadorAtualizacaoGitHub.VersaoAtual}" />
+                </FormattedString>
+            </Label.FormattedText>
+        </Label>
     </Grid>
 </ContentPage>
