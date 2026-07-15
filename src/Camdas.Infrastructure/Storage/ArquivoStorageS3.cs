@@ -25,6 +25,12 @@ public sealed class ArquivoStorageS3(IAmazonS3 cliente, string bucket) : IArquiv
             Key = chave,
             InputStream = conteudo,
             AutoCloseStream = false,
+            // Por padrão o SDK sobe o arquivo em "chunks" assinados (streaming SigV4) — gateways
+            // S3-compatíveis fora da AWS (Supabase Storage, MinIO, Cloudflare R2) costumam não
+            // suportar isso e recusam com um 403 Forbidden genérico, sem detalhe (foi exatamente o
+            // erro relatado). Desligando, o SDK assina o payload inteiro de uma vez, compatível com
+            // qualquer S3-like.
+            UseChunkEncoding = false,
         }, cancellationToken);
 
         return chave;

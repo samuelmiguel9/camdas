@@ -53,6 +53,17 @@ if (string.Equals(builder.Configuration["ArmazenamentoArquivos:Tipo"], "S3", Str
         {
             ServiceURL = builder.Configuration["ArmazenamentoArquivos:S3:EndpointUrl"],
             ForcePathStyle = true, // exigido por endpoints S3-compatíveis fora da AWS
+            // Sem a região certa, a assinatura da requisição (SigV4) fica inválida e o Supabase
+            // Storage recusa com 403 Forbidden.
+            AuthenticationRegion = builder.Configuration["ArmazenamentoArquivos:S3:Region"] ?? "us-east-1",
+            // O SDK, por padrão, inclui o header "User-Agent" entre os headers assinados (SigV4).
+            // O Supabase Storage fica atrás de Cloudflare, que altera esse header em trânsito —
+            // a assinatura que o servidor recalcula não bate mais com a enviada, e ele recusa com
+            // 403 Forbidden genérico (sem detalhe). UseAlternateUserAgentHeader move o user-agent
+            // pro header "X-Amz-User-Agent", fora da assinatura. Causa raiz confirmada reproduzindo
+            // o mesmo PutObject localmente com o SDK .NET (funcionava via AWS CLI, que não assina
+            // esse header, mas falhava com o SDK .NET até essa mudança).
+            UseAlternateUserAgentHeader = true,
         }));
     builder.Services.AddSingleton<IArquivoStorage>(provedor => new ArquivoStorageS3(
         provedor.GetRequiredService<IAmazonS3>(),
