@@ -15,6 +15,13 @@ var apiBaseUrl = builder.Configuration["ApiBaseUrl"]
 builder.Services.AddScoped<ITokenStore, LocalStorageTokenStore>();
 builder.Services.AddTransient<TokenAuthHandler>();
 
+// PlantaViewModel e ProjetosViewModel (Camdas.Mobile.Core, compartilhadas com o app Android) exigem
+// estes serviços por injeção de construtor — sem registrar algo aqui, o DI do Blazor falha ao criar
+// a página inteira com uma exceção não tratada (tela de erro genérica do Blazor no navegador).
+// Camdas.Web é só visualização, então ambos são no-ops aqui — ver comentário em cada classe.
+builder.Services.AddSingleton<ISalvadorGaleria, SalvadorGaleriaNaoSuportado>();
+builder.Services.AddSingleton<IVerificadorAtualizacao, VerificadorAtualizacaoNaoSuportado>();
+
 builder.Services.AddHttpClient<IApiClient, ApiClient>(cliente =>
 {
     cliente.BaseAddress = new Uri(apiBaseUrl);
