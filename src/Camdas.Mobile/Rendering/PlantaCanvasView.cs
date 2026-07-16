@@ -11,18 +11,9 @@ namespace Camdas.Mobile.Views;
 /// Canvas de desenho da planta: mostra a imagem base + o traço livre (raster) de cada camada
 /// visível + as linhas de cota (a lógica de "o que desenhar" vive em
 /// <see cref="PlantaOverlayRenderer"/>, Camdas.Mobile.Core, testável sem Android). Esta classe
-/// adiciona o que só pode viver aqui: o ciclo de vida do canvas nativo, o toque (rabiscar/escrever
-/// na camada ativa) e zoom/pan — desenho e pan nunca competem pelo mesmo toque, só um dos dois fica
-/// ativo por vez (<see cref="ModoPan"/>).
-///
-/// Usa <see cref="SKGLView"/> (superfície acelerada por OpenGL) em vez de <c>SKCanvasView</c>
-/// (renderização por software): SKCanvasView recria a superfície nativa a cada mudança de foco/
-/// layout (hover da S Pen, teclado abrindo), e num Galaxy Tab A (Android 8.1, 32-bit) essa recriação
-/// disparava um SIGSEGV nativo dentro de libSkiaSharp.so, sempre no mesmo offset — reproduzido de
-/// forma consistente e não resolvido só suprimindo hover/mudando o modo do teclado (ver
-/// CRASH_ANALISE.txt/captura_log2_ERRO_DESTACADO.txt). SKGLView mantém a superfície num contexto
-/// OpenGL gerenciado pelo próprio Android (GLSurfaceView), que lida com esses eventos de forma mais
-/// robusta nesse cenário.
+/// adiciona o que só pode viver aqui: o ciclo de vida do <see cref="SKCanvasView"/>, o toque
+/// (rabiscar/escrever na camada ativa) e zoom/pan — desenho e pan nunca competem pelo mesmo toque,
+/// só um dos dois fica ativo por vez (<see cref="ModoPan"/>).
 ///
 /// Quando <see cref="UsarResolucaoNativa"/> é true (PlantaPage e CamadaEdicaoPage), o bitmap de cada
 /// camada é criado no tamanho nativo da imagem base — não no tamanho da tela do aparelho — então o
@@ -30,7 +21,7 @@ namespace Camdas.Mobile.Views;
 /// cref="Zoom"/> só controla a transformação visual (canvas.Scale), sem afetar essa resolução.
 /// Mantido `false` por padrão pra não alterar o comportamento de quem ainda não usa zoom.
 /// </summary>
-public sealed class PlantaCanvasView : SKGLView
+public sealed class PlantaCanvasView : SKCanvasView
 {
     /// <summary>Uma ação de desenho (traço ou texto), guardada pra permitir desfazer/refazer sem
     /// apagar a camada inteira — o bitmap é reconstruído do zero reaplicando as ações restantes,
@@ -368,7 +359,7 @@ public sealed class PlantaCanvasView : SKGLView
             canvas.DrawLine(traco.Pontos[i - 1], traco.Pontos[i], paint);
     }
 
-    protected override void OnPaintSurface(SKPaintGLSurfaceEventArgs e)
+    protected override void OnPaintSurface(SKPaintSurfaceEventArgs e)
     {
         base.OnPaintSurface(e);
 
@@ -393,7 +384,7 @@ public sealed class PlantaCanvasView : SKGLView
             return;
         }
 
-        var imagemBaseEscalada = ObterImagemBaseEscalada(new SKSizeI((int)CanvasSize.Width, (int)CanvasSize.Height));
+        var imagemBaseEscalada = ObterImagemBaseEscalada(e.Info);
 
         if (Camadas is { Count: > 0 } camadas)
             PlantaOverlayRenderer.Desenhar(canvas, camadas, imagemBaseEscalada, imagensPorCamada);
@@ -401,16 +392,17 @@ public sealed class PlantaCanvasView : SKGLView
             canvas.DrawBitmap(imagemBaseEscalada, 0, 0);
     }
 
-    private SKBitmap? ObterImagemBaseEscalada(SKSizeI tamanhoAlvo)
+    private SKBitmap? ObterImagemBaseEscalada(SKImageInfo info)
     {
         if (ImagemBase is null)
             return null;
 
+        var tamanhoAlvo = new SKSizeI(info.Width, info.Height);
         if (_imagemBaseEscalada is not null && _tamanhoImagemBaseEscalada == tamanhoAlvo)
             return _imagemBaseEscalada;
 
         _imagemBaseEscalada?.Dispose();
-        _imagemBaseEscalada = ImagemBase.Resize(new SKImageInfo(tamanhoAlvo.Width, tamanhoAlvo.Height), SKFilterQuality.Medium);
+        _imagemBaseEscalada = ImagemBase.Resize(new SKImageInfo(info.Width, info.Height), SKFilterQuality.Medium);
         _tamanhoImagemBaseEscalada = tamanhoAlvo;
         return _imagemBaseEscalada;
     }
