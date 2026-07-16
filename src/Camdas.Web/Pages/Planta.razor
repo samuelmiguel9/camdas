@@ -72,7 +72,7 @@
             <div class="planta-zoom-controles">
                 <span>Zoom</span>
                 <button @onclick="() => AjustarZoom(_zoom - 0.25)">−</button>
-                <input type="range" min="0.25" max="3" step="0.05" value="@_zoom.ToString(System.Globalization.CultureInfo.InvariantCulture)"
+                <input type="range" min="@ZoomMinimo.ToString(System.Globalization.CultureInfo.InvariantCulture)" max="3" step="0.01" value="@_zoom.ToString(System.Globalization.CultureInfo.InvariantCulture)"
                        @oninput="e => AjustarZoom(double.Parse((string)e.Value!, System.Globalization.CultureInfo.InvariantCulture))" />
                 <button @onclick="() => AjustarZoom(_zoom + 0.25)">+</button>
                 <span class="planta-zoom-valor">@($"{_zoom:P0}")</span>
@@ -107,7 +107,7 @@
             <div class="planta-zoom-controles planta-fullscreen-controles">
                 <span>Zoom</span>
                 <button @onclick="() => AjustarZoom(_zoom - 0.25)">−</button>
-                <input type="range" min="0.25" max="3" step="0.05" value="@_zoom.ToString(System.Globalization.CultureInfo.InvariantCulture)"
+                <input type="range" min="@ZoomMinimo.ToString(System.Globalization.CultureInfo.InvariantCulture)" max="3" step="0.01" value="@_zoom.ToString(System.Globalization.CultureInfo.InvariantCulture)"
                        @oninput="e => AjustarZoom(double.Parse((string)e.Value!, System.Globalization.CultureInfo.InvariantCulture))" />
                 <button @onclick="() => AjustarZoom(_zoom + 0.25)">+</button>
                 <span class="planta-zoom-valor">@($"{_zoom:P0}")</span>
@@ -138,6 +138,12 @@
     /// <summary>Largura aproximada usada só como fallback caso a medição via JS interop falhe
     /// (ex.: elemento ainda não presente no DOM).</summary>
     private const double LarguraColunaAproximada = 900;
+
+    /// <summary>Zoom mínimo permitido. Precisa ser bem baixo porque plantas/capturas de tela de
+    /// celular são bem maiores (em pixels) que a área de exibição — um piso de 25% (valor antigo)
+    /// impedia enquadrar imagens grandes por completo, cortando a base da imagem sem dar pra ver o
+    /// resto (bug reportado: "mesmo com o zoom mínimo não consigo visualizar a imagem por completo").</summary>
+    private const double ZoomMinimo = 0.02;
 
     private sealed record TamanhoElemento(double Width, double Height);
 
@@ -178,7 +184,7 @@
 
     private void AjustarZoom(double zoom)
     {
-        _zoom = Math.Clamp(zoom, 0.25, 3.0);
+        _zoom = Math.Clamp(zoom, ZoomMinimo, 3.0);
         StateHasChanged();
         InvokeAsync(() =>
         {
