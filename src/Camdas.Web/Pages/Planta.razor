@@ -16,8 +16,38 @@
     <p class="text-danger">@ViewModel.MensagemErro</p>
 }
 
-<div class="row">
-    <div class="col-md-3">
+<div class="planta-layout">
+    <div class="planta-area">
+        @if (ViewModel.ImagemBase is not null)
+        {
+            <div class="planta-zoom-controles">
+                <span>Zoom</span>
+                <button @onclick="() => AjustarZoom(_zoom - 0.25)">−</button>
+                <input type="range" min="@ZoomMinimo.ToString(System.Globalization.CultureInfo.InvariantCulture)" max="3" step="0.01" value="@_zoom.ToString(System.Globalization.CultureInfo.InvariantCulture)"
+                       @oninput="e => AjustarZoom(double.Parse((string)e.Value!, System.Globalization.CultureInfo.InvariantCulture))" />
+                <button @onclick="() => AjustarZoom(_zoom + 0.25)">+</button>
+                <span class="planta-zoom-valor">@($"{_zoom:P0}")</span>
+                <button @onclick="() => AjustarZoomParaTelaAsync(telaCheia: false)">Ajustar à tela</button>
+                <button @onclick="AbrirTelaCheia" title="Abrir em tela cheia">⛶ Ampliar</button>
+            </div>
+
+            <!-- Wrapper com scroll: quando o zoom deixa a planta maior que a área visível, dá pra
+                 percorrer com a barra de rolagem em vez de ficar cortada sem forma de ver o resto
+                 (bug reportado: "não consigo visualizar a planta inteira"). -->
+            <div class="planta-canvas-scroll" id="planta-canvas-wrapper">
+                <SKCanvasView @ref="_canvasView"
+                              WidthRequest="@((int)(ViewModel.ImagemBase.Width * _zoom))"
+                              HeightRequest="@((int)(ViewModel.ImagemBase.Height * _zoom))"
+                              OnPaintSurface="Desenhar" />
+            </div>
+        }
+        else if (ViewModel.EstaCarregando)
+        {
+            <p><em>Carregando planta...</em></p>
+        }
+    </div>
+
+    <div class="planta-camadas-area">
         <h5>Camadas</h5>
 
         @{ var edicaoDeOrdem = EdicaoPendente(null); }
@@ -79,35 +109,6 @@
                 </div>
             }
         </div>
-    </div>
-    <div class="col-md-9">
-        @if (ViewModel.ImagemBase is not null)
-        {
-            <div class="planta-zoom-controles">
-                <span>Zoom</span>
-                <button @onclick="() => AjustarZoom(_zoom - 0.25)">−</button>
-                <input type="range" min="@ZoomMinimo.ToString(System.Globalization.CultureInfo.InvariantCulture)" max="3" step="0.01" value="@_zoom.ToString(System.Globalization.CultureInfo.InvariantCulture)"
-                       @oninput="e => AjustarZoom(double.Parse((string)e.Value!, System.Globalization.CultureInfo.InvariantCulture))" />
-                <button @onclick="() => AjustarZoom(_zoom + 0.25)">+</button>
-                <span class="planta-zoom-valor">@($"{_zoom:P0}")</span>
-                <button @onclick="() => AjustarZoomParaTelaAsync(telaCheia: false)">Ajustar à tela</button>
-                <button @onclick="AbrirTelaCheia" title="Abrir em tela cheia">⛶ Ampliar</button>
-            </div>
-
-            <!-- Wrapper com scroll: quando o zoom deixa a planta maior que a área visível, dá pra
-                 percorrer com a barra de rolagem em vez de ficar cortada sem forma de ver o resto
-                 (bug reportado: "não consigo visualizar a planta inteira"). -->
-            <div class="planta-canvas-scroll" id="planta-canvas-wrapper">
-                <SKCanvasView @ref="_canvasView"
-                              WidthRequest="@((int)(ViewModel.ImagemBase.Width * _zoom))"
-                              HeightRequest="@((int)(ViewModel.ImagemBase.Height * _zoom))"
-                              OnPaintSurface="Desenhar" />
-            </div>
-        }
-        else if (ViewModel.EstaCarregando)
-        {
-            <p><em>Carregando planta...</em></p>
-        }
     </div>
 </div>
 

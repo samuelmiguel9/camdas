@@ -1,9 +1,26 @@
+/* Layout empilhado: planta em cima, painel de camadas embaixo em faixa horizontal — a versão
+   antiga em colunas lado a lado (col-md-3/col-md-9) deixava o painel de camadas espremido numa
+   coluna estreita e embolado (bug reportado: "guia de camadas... esta embolado"). */
+.planta-layout {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.planta-camadas-area {
+    width: 100%;
+}
+
 .camadas-painel {
     background-color: #2e2e2e;
     border: 1px solid #1e1e1e;
     border-radius: 4px;
-    max-height: 70vh;
+    max-height: 40vh;
     overflow-y: auto;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 8px;
 }
 
 .camada-linha {
@@ -11,11 +28,10 @@
     align-items: center;
     gap: 10px;
     padding: 8px 10px;
-    border-bottom: 1px solid #1e1e1e;
-}
-
-.camada-linha:last-child {
-    border-bottom: none;
+    border: 1px solid #1e1e1e;
+    border-radius: 4px;
+    width: 320px;
+    flex: 0 0 auto;
 }
 
 .camada-linha:hover {
