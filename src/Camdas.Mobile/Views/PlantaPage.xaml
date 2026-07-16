@@ -126,43 +126,49 @@
                 <TapGestureRecognizer Command="{Binding FecharMenuCamadaCommand}" />
             </Grid.GestureRecognizers>
 
+            <!-- MaximumHeightRequest + ScrollView: com os 8 itens do menu, o conteúdo podia ficar mais
+                 alto que a tela — e como o Border fica centralizado verticalmente sem rolagem, o
+                 excesso "vazava" pros dois lados por igual, cortando o topo (Nome + Opacidade) e o
+                 rodapé (bug relatado: "a opacidade das camadas sumiu", era só o topo do menu cortado). -->
             <Border Padding="16" Margin="24" BackgroundColor="#2E2E2E" Stroke="#1E1E1E" StrokeShape="RoundRectangle 8"
-                    VerticalOptions="Center" HorizontalOptions="Fill">
+                    VerticalOptions="Center" HorizontalOptions="Fill" MaximumHeightRequest="480">
                 <Border.GestureRecognizers>
                     <TapGestureRecognizer />
                 </Border.GestureRecognizers>
 
-                <VerticalStackLayout Spacing="12" BindingContext="{Binding CamadaMenuAberta}" x:DataType="contracts:CamadaDto">
-                    <Label Text="{Binding Nome}" FontAttributes="Bold" FontSize="16" TextColor="White" />
+                <ScrollView>
+                    <VerticalStackLayout Spacing="12" BindingContext="{Binding CamadaMenuAberta}" x:DataType="contracts:CamadaDto">
+                        <Label Text="{Binding Nome}" FontAttributes="Bold" FontSize="16" TextColor="White" />
 
-                    <VerticalStackLayout Spacing="4">
-                        <Label Text="Opacidade" TextColor="#CCCCCC" FontSize="12" />
-                        <Slider Minimum="0" Maximum="1" Value="{Binding Opacidade, Mode=TwoWay}"
-                                DragCompleted="OnOpacidadeSliderDragCompleted" />
+                        <VerticalStackLayout Spacing="4">
+                            <Label Text="Opacidade" TextColor="#CCCCCC" FontSize="12" />
+                            <Slider Minimum="0" Maximum="1" Value="{Binding Opacidade, Mode=TwoWay}"
+                                    DragCompleted="OnOpacidadeSliderDragCompleted" />
+                        </VerticalStackLayout>
+
+                        <Button Text="Limpar camada"
+                                Command="{Binding BindingContext.LimparCamadaCommand, Source={RelativeSource AncestorType={x:Type ContentPage}}}"
+                                CommandParameter="{Binding .}" />
+
+                        <Button Text="{Binding Bloqueada, Converter={StaticResource BoolParaTextoConverter}, ConverterParameter='Desbloquear camada;Bloquear camada'}"
+                                Command="{Binding BindingContext.AlternarBloqueioCommand, Source={RelativeSource AncestorType={x:Type ContentPage}}}"
+                                CommandParameter="{Binding .}" />
+
+                        <Button Text="{Binding BloqueioAlpha, Converter={StaticResource BoolParaTextoConverter}, ConverterParameter='Desbloquear opacidade;Bloquear opacidade'}"
+                                Command="{Binding BindingContext.AlternarBloqueioAlphaCommand, Source={RelativeSource AncestorType={x:Type ContentPage}}}"
+                                CommandParameter="{Binding .}" />
+
+                        <Button Text="Duplicar camada"
+                                Command="{Binding BindingContext.DuplicarCamadaCommand, Source={RelativeSource AncestorType={x:Type ContentPage}}}"
+                                CommandParameter="{Binding .}" />
+
+                        <Button Text="Excluir camada" TextColor="#E74C3C"
+                                CommandParameter="{Binding .}" Clicked="OnExcluirCamadaClicked" />
+
+                        <Button Text="Fechar"
+                                Command="{Binding BindingContext.FecharMenuCamadaCommand, Source={RelativeSource AncestorType={x:Type ContentPage}}}" />
                     </VerticalStackLayout>
-
-                    <Button Text="Limpar camada"
-                            Command="{Binding BindingContext.LimparCamadaCommand, Source={RelativeSource AncestorType={x:Type ContentPage}}}"
-                            CommandParameter="{Binding .}" />
-
-                    <Button Text="{Binding Bloqueada, Converter={StaticResource BoolParaTextoConverter}, ConverterParameter='Desbloquear camada;Bloquear camada'}"
-                            Command="{Binding BindingContext.AlternarBloqueioCommand, Source={RelativeSource AncestorType={x:Type ContentPage}}}"
-                            CommandParameter="{Binding .}" />
-
-                    <Button Text="{Binding BloqueioAlpha, Converter={StaticResource BoolParaTextoConverter}, ConverterParameter='Desbloquear opacidade;Bloquear opacidade'}"
-                            Command="{Binding BindingContext.AlternarBloqueioAlphaCommand, Source={RelativeSource AncestorType={x:Type ContentPage}}}"
-                            CommandParameter="{Binding .}" />
-
-                    <Button Text="Duplicar camada"
-                            Command="{Binding BindingContext.DuplicarCamadaCommand, Source={RelativeSource AncestorType={x:Type ContentPage}}}"
-                            CommandParameter="{Binding .}" />
-
-                    <Button Text="Excluir camada" TextColor="#E74C3C"
-                            CommandParameter="{Binding .}" Clicked="OnExcluirCamadaClicked" />
-
-                    <Button Text="Fechar"
-                            Command="{Binding BindingContext.FecharMenuCamadaCommand, Source={RelativeSource AncestorType={x:Type ContentPage}}}" />
-                </VerticalStackLayout>
+                </ScrollView>
             </Border>
         </Grid>
     </Grid>

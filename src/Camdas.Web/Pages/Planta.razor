@@ -76,17 +76,19 @@
                        @oninput="e => AjustarZoom(double.Parse((string)e.Value!, System.Globalization.CultureInfo.InvariantCulture))" />
                 <button @onclick="() => AjustarZoom(_zoom + 0.25)">+</button>
                 <span class="planta-zoom-valor">@($"{_zoom:P0}")</span>
-                <button @onclick="AjustarZoomParaTela">Ajustar à tela</button>
+                <button @onclick="() => AjustarZoomParaTelaAsync(TelaCheia)">Ajustar à tela</button>
+                <button @onclick="AbrirTelaCheiaAsync" title="Abrir em tela cheia">⛶ Ampliar</button>
             </div>
 
             <!-- Wrapper com scroll: quando o zoom deixa a planta maior que a área visível, dá pra
                  percorrer com a barra de rolagem em vez de ficar cortada sem forma de ver o resto
                  (bug reportado: "não consigo visualizar a planta inteira"). -->
-            <div class="planta-canvas-scroll">
+            <div class="planta-canvas-scroll" id="planta-canvas-wrapper">
                 <SKCanvasView @ref="_canvasView"
                               WidthRequest="@((int)(ViewModel.ImagemBase.Width * _zoom))"
                               HeightRequest="@((int)(ViewModel.ImagemBase.Height * _zoom))"
-                              OnPaintSurface="Desenhar" />
+                              OnPaintSurface="Desenhar"
+                              @onclick="AbrirTelaCheiaAsync" />
             </div>
         }
         else if (ViewModel.EstaCarregando)
@@ -95,6 +97,33 @@
         }
     </div>
 </div>
+
+@if (_telaCheia && ViewModel.ImagemBase is not null)
+{
+    <!-- Visualização ampliada dentro do próprio site (sem navegar pra outra página): ocupa a tela
+         toda por cima do conteúdo, com seu próprio "ajustar à tela" calculado pelo tamanho real do
+         viewport (JS interop), em vez da estimativa fixa usada no painel lateral. -->
+    <div class="planta-fullscreen-overlay" @onclick="FecharTelaCheiaAsync">
+        <div class="planta-fullscreen-conteudo" @onclick:stopPropagation="true">
+            <div class="planta-zoom-controles planta-fullscreen-controles">
+                <span>Zoom</span>
+                <button @onclick="() => AjustarZoom(_zoom - 0.25)">−</button>
+                <input type="range" min="0.25" max="3" step="0.05" value="@_zoom.ToString(System.Globalization.CultureInfo.InvariantCulture)"
+                       @oninput="e => AjustarZoom(double.Parse((string)e.Value!, System.Globalization.CultureInfo.InvariantCulture))" />
+                <button @onclick="() => AjustarZoom(_zoom + 0.25)">+</button>
+                <span class="planta-zoom-valor">@($"{_zoom:P0}")</span>
+                <button @onclick="() => AjustarZoomParaTelaAsync(TelaCheia)">Ajustar à tela</button>
+                <button @onclick="FecharTelaCheiaAsync" title="Fechar">✕ Fechar</button>
+            </div>
+            <div class="planta-canvas-scroll planta-fullscreen-scroll" id="planta-fullscreen-wrapper">
+                <SKCanvasView @ref="_canvasViewTelaCheia"
+                              WidthRequest="@((int)(ViewModel.ImagemBase.Width * _zoom))"
+                              HeightRequest="@((int)(ViewModel.ImagemBase.Height * _zoom))"
+                              OnPaintSurface="Desenhar" />
+            </div>
+        </div>
+    </div>
+}
 
 @code {
     [Parameter]

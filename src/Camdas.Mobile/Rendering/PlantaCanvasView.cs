@@ -138,6 +138,23 @@ public sealed class PlantaCanvasView : SKCanvasView
     {
         EnableTouchEvents = true;
         Touch += OnTouch;
+
+        // Crash real reproduzido num Galaxy Tab A com S Pen (Android 8.1): pairar a caneta perto da
+        // tela sem tocar (ACTION_HOVER_ENTER) derruba o app com SIGSEGV nativo dentro de
+        // libSkiaSharp.so — parece um bug da própria lib ao processar hover em versões antigas do
+        // Android, não algo que dá pra evitar só no C# do nosso OnTouch (o crash acontece antes de
+        // chegar lá). O app nunca usou hover pra nada, então suprimimos no listener nativo do Android
+        // (consumindo o evento, sem repassar pra frente) assim que o Handler for criado.
+        HandlerChanged += (_, _) =>
+        {
+            if (Handler?.PlatformView is Android.Views.View view)
+                view.SetOnHoverListener(new SupressorDeHover());
+        };
+    }
+
+    private sealed class SupressorDeHover : Java.Lang.Object, Android.Views.View.IOnHoverListener
+    {
+        public bool OnHover(Android.Views.View? v, Android.Views.MotionEvent? e) => true;
     }
 
     public IReadOnlyList<CamadaDto>? Camadas
