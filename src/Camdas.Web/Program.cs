@@ -22,6 +22,10 @@ builder.Services.AddTransient<TokenAuthHandler>();
 builder.Services.AddSingleton<ISalvadorGaleria, SalvadorGaleriaNaoSuportado>();
 builder.Services.AddSingleton<IVerificadorAtualizacao, VerificadorAtualizacaoNaoSuportado>();
 
+// Web é auxiliar: edições de Camada viram propostas pendentes de aprovação de um técnico no Android
+// (mestre) em vez de aplicar direto — ver PlataformaEdicaoWeb.
+builder.Services.AddScoped<IPlataformaEdicao, PlataformaEdicaoWeb>();
+
 builder.Services.AddHttpClient<IApiClient, ApiClient>(cliente =>
 {
     cliente.BaseAddress = new Uri(apiBaseUrl);

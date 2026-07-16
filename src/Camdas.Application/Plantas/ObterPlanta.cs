@@ -7,7 +7,7 @@ namespace Camdas.Application.Plantas;
 
 public sealed record ObterPlantaQuery(Guid PlantaId) : IRequest<PlantaDto>;
 
-public sealed class ObterPlantaQueryHandler(IPlantaRepository plantaRepository)
+public sealed class ObterPlantaQueryHandler(IPlantaRepository plantaRepository, IEdicaoPendenteRepository edicaoPendenteRepository)
     : IRequestHandler<ObterPlantaQuery, PlantaDto>
 {
     public async Task<PlantaDto> Handle(ObterPlantaQuery request, CancellationToken cancellationToken)
@@ -15,6 +15,8 @@ public sealed class ObterPlantaQueryHandler(IPlantaRepository plantaRepository)
         var planta = await plantaRepository.ObterPorIdAsync(request.PlantaId, cancellationToken)
             ?? throw new RecursoNaoEncontradoException($"Planta '{request.PlantaId}' não encontrada.");
 
-        return planta.ParaDto();
+        var edicoesPendentes = await edicaoPendenteRepository.ListarPendentesPorPlantaAsync(planta.Id, cancellationToken);
+
+        return planta.ParaDto() with { EdicoesPendentes = edicoesPendentes.Select(e => e.ParaDto()).ToList() };
     }
 }

@@ -40,4 +40,11 @@ public interface IApiClient
     Task<CamadaDto> AtualizarImagemCamadaAsync(Guid plantaId, Guid camadaId, Stream conteudoPng, CancellationToken ct = default);
 
     Task<IReadOnlyList<HistoricoDto>> ObterHistoricoAsync(Guid plantaId, CancellationToken ct = default);
+
+    Task<EdicaoPendenteDto> SolicitarEdicaoCamadaAsync(
+        Guid plantaId, Guid? camadaId, TipoOperacaoEdicaoPendente tipoOperacao, string dadosDepoisJson,
+        string responsavel, string motivo, CancellationToken ct = default);
+    Task<IReadOnlyList<EdicaoPendenteDto>> ListarEdicoesPendentesAsync(Guid plantaId, CancellationToken ct = default);
+    Task<CamadaDto?> AprovarEdicaoCamadaAsync(Guid plantaId, Guid edicaoId, CancellationToken ct = default);
+    Task RejeitarEdicaoCamadaAsync(Guid plantaId, Guid edicaoId, string motivo, CancellationToken ct = default);
 }

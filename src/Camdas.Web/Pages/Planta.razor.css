@@ -86,6 +86,22 @@
     margin-left: 4px;
 }
 
+.camada-pendente-inline {
+    font-size: 0.9rem;
+    margin-left: 4px;
+    cursor: help;
+}
+
+.camada-pendente-aviso {
+    background-color: #4a3b0a;
+    color: #ffd479;
+    border: 1px solid #6b5715;
+    border-radius: 4px;
+    padding: 6px 10px;
+    font-size: 0.85rem;
+    cursor: help;
+}
+
 .camada-ordem {
     display: flex;
     flex-direction: column;

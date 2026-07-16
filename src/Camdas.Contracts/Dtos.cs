@@ -30,7 +30,8 @@ public sealed record PlantaDto(
     TipoArquivoOrigem TipoArquivoOrigem,
     string CaminhoArquivoOriginal,
     DateTime DataImportacao,
-    IReadOnlyList<CamadaDto> Camadas);
+    IReadOnlyList<CamadaDto> Camadas,
+    IReadOnlyList<EdicaoPendenteDto> EdicoesPendentes);
 
 public sealed record UsuarioDto(Guid Id, string Nome, string Email, bool Ativo);
 
@@ -44,3 +45,17 @@ public sealed record HistoricoDto(
     DateTime DataHora,
     string? DadosAnterioresJson,
     string? DadosNovosJson);
+
+public sealed record EdicaoPendenteDto(
+    Guid Id,
+    Guid PlantaId,
+    Guid? CamadaId,
+    TipoOperacaoEdicaoPendente TipoOperacao,
+    string? DadosAntesJson,
+    string DadosDepoisJson,
+    string Responsavel,
+    string Motivo,
+    DateTime DataSolicitacao,
+    StatusEdicaoPendente Status,
+    DateTime? DataResposta,
+    string? MotivoRejeicao);

@@ -19,5 +19,7 @@ public enum TipoAcaoHistorico
     CamadaAlphaBloqueado,
     CamadaAlphaDesbloqueado,
     CamadaLimpada,
-    CamadaDuplicada
+    CamadaDuplicada,
+    CamadaEdicaoSolicitada,
+    CamadaEdicaoRejeitada
 }

@@ -1,5 +1,7 @@
 using System.Collections.ObjectModel;
+using System.Text.Json;
 using Camdas.Contracts;
+using Camdas.Domain.Enums;
 using Camdas.Mobile.Rendering;
 using Camdas.Mobile.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -13,8 +15,13 @@ namespace Camdas.Mobile.ViewModels;
 /// desenha aqui) e gerencia visibilidade/bloqueio/criação/prioridade de camadas. O desenho em si
 /// acontece numa tela isolada por camada (<see cref="CamadaEdicaoViewModel"/>/CamadaEdicaoPage), pra
 /// não misturar o traço de uma camada nova com as demais enquanto ela está sendo criada/editada.
+///
+/// Compartilhada entre Android (mestre) e Web (auxiliar): <paramref name="plataformaEdicao"/> decide
+/// se as edições de visibilidade/opacidade/bloqueio/ordem/exclusão aplicam direto (Android) ou viram
+/// uma <see cref="EdicaoPendenteDto"/> aguardando aprovação de um técnico (Web) — ver
+/// <see cref="SolicitarOuExecutarAsync"/>.
 /// </summary>
-public partial class PlantaViewModel(IApiClient apiClient, ISalvadorGaleria salvadorGaleria) : BaseViewModel
+public partial class PlantaViewModel(IApiClient apiClient, ISalvadorGaleria salvadorGaleria, IPlataformaEdicao plataformaEdicao) : BaseViewModel
 {
     [ObservableProperty]
     private PlantaDto? _planta;
@@ -209,6 +216,9 @@ public partial class PlantaViewModel(IApiClient apiClient, ISalvadorGaleria salv
         MensagemErro = null;
         try
         {
+            if (await SolicitarOuExecutarAsync(camadaId: null, TipoOperacaoEdicaoPendente.Reordenar, JsonSerializer.Serialize(new { ordemDosIds = ids })))
+                return;
+
             var atualizadas = await apiClient.ReordenarCamadasAsync(Planta.Id, ids);
             var camadaAtivaId = CamadaAtiva?.Id;
             Camadas.Clear();
@@ -247,6 +257,9 @@ public partial class PlantaViewModel(IApiClient apiClient, ISalvadorGaleria salv
 
         try
         {
+            if (await SolicitarOuExecutarAsync(camada.Id, TipoOperacaoEdicaoPendente.AlternarVisibilidade, "{}"))
+                return;
+
             var atualizada = await apiClient.AlternarVisibilidadeCamadaAsync(Planta.Id, camada.Id);
             SubstituirCamada(atualizada);
         }
@@ -264,6 +277,9 @@ public partial class PlantaViewModel(IApiClient apiClient, ISalvadorGaleria salv
 
         try
         {
+            if (await SolicitarOuExecutarAsync(camada.Id, TipoOperacaoEdicaoPendente.DefinirOpacidade, JsonSerializer.Serialize(new { opacidade })))
+                return;
+
             var atualizada = await apiClient.DefinirOpacidadeCamadaAsync(Planta.Id, camada.Id, opacidade);
             SubstituirCamada(atualizada);
         }
@@ -281,6 +297,9 @@ public partial class PlantaViewModel(IApiClient apiClient, ISalvadorGaleria salv
 
         try
         {
+            if (await SolicitarOuExecutarAsync(camada.Id, TipoOperacaoEdicaoPendente.AlternarBloqueio, "{}"))
+                return;
+
             var atualizada = camada.Bloqueada
                 ? await apiClient.DesbloquearCamadaAsync(Planta.Id, camada.Id)
                 : await apiClient.BloquearCamadaAsync(Planta.Id, camada.Id);
@@ -302,6 +321,9 @@ public partial class PlantaViewModel(IApiClient apiClient, ISalvadorGaleria salv
         MensagemErro = null;
         try
         {
+            if (await SolicitarOuExecutarAsync(camada.Id, TipoOperacaoEdicaoPendente.Excluir, "{}"))
+                return;
+
             await apiClient.RemoverCamadaAsync(Planta.Id, camada.Id);
             Camadas.Remove(camada);
             ImagensPorCamada.Remove(camada.Id, out var bitmap);
@@ -389,6 +411,27 @@ public partial class PlantaViewModel(IApiClient apiClient, ISalvadorGaleria salv
         {
             MensagemErro = $"Não foi possível alterar o bloqueio de opacidade: {ex.Message}";
         }
+    }
+
+    /// <summary>
+    /// Quando <see cref="IPlataformaEdicao.ExigeAprovacao"/> é true (Web), registra a mudança como
+    /// pendente em vez de deixar o chamador aplicá-la direto, e retorna true (chamador deve parar).
+    /// No Android retorna false direto, sem pedir nada — chamador segue com a execução normal.
+    /// </summary>
+    private async Task<bool> SolicitarOuExecutarAsync(Guid? camadaId, TipoOperacaoEdicaoPendente tipoOperacao, string dadosDepoisJson)
+    {
+        if (!plataformaEdicao.ExigeAprovacao)
+            return false;
+
+        var justificativa = await plataformaEdicao.PedirJustificativaAsync();
+        if (justificativa is null)
+            return true;
+
+        await apiClient.SolicitarEdicaoCamadaAsync(
+            Planta!.Id, camadaId, tipoOperacao, dadosDepoisJson, justificativa.Value.Responsavel, justificativa.Value.Motivo);
+
+        Planta = await apiClient.ObterPlantaAsync(Planta.Id);
+        return true;
     }
 
     private void SubstituirCamada(CamadaDto atualizada)

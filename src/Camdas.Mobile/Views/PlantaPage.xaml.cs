@@ -144,6 +144,9 @@ public partial class PlantaPage : ContentPage
     private async void OnAbrirHistoricoClicked(object? sender, EventArgs e) =>
         await Shell.Current.GoToAsync($"{nameof(HistoricoPage)}?plantaId={PlantaId}");
 
+    private async void OnAbrirEdicoesPendentesClicked(object? sender, EventArgs e) =>
+        await Shell.Current.GoToAsync($"{nameof(RevisaoEdicoesPage)}?plantaId={PlantaId}");
+
     private async void OnNovaCamadaClicked(object? sender, EventArgs e)
     {
         var nome = await DisplayPromptAsync("Nova camada", "Nome da camada");

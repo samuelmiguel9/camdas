@@ -11,7 +11,7 @@ namespace Camdas.Mobile.Tests.ViewModels;
 public class PlantasDoProjetoViewModelTests
 {
     private static PlantaDto NovaPlanta(Guid projetoId) =>
-        new(Guid.NewGuid(), projetoId, "Casa Alfa", null, null, TipoArquivoOrigem.Imagem, "/a.png", DateTime.UtcNow, []);
+        new(Guid.NewGuid(), projetoId, "Casa Alfa", null, null, TipoArquivoOrigem.Imagem, "/a.png", DateTime.UtcNow, [], []);
 
     [Fact]
     public async Task Carregar_deve_popular_a_lista_de_plantas_do_projeto()

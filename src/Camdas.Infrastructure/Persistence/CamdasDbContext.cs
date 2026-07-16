@@ -20,6 +20,7 @@ public sealed class CamdasDbContext : DbContext
     public DbSet<Projeto> Projetos => Set<Projeto>();
     public DbSet<Planta> Plantas => Set<Planta>();
     public DbSet<HistoricoAlteracao> HistoricosDeAlteracao => Set<HistoricoAlteracao>();
+    public DbSet<EdicaoPendenteCamada> EdicoesPendentesCamada => Set<EdicaoPendenteCamada>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

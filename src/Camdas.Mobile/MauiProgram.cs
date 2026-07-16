@@ -39,6 +39,7 @@ public static class MauiProgram
         services.AddSingleton<ITokenStore, TokenStoreSecureStorage>();
         services.AddSingleton<ISalvadorGaleria, SalvadorGaleriaAndroid>();
         services.AddSingleton<IArmazenamentoRascunho, ArmazenamentoRascunhoArquivo>();
+        services.AddSingleton<IPlataformaEdicao, PlataformaEdicaoDireta>();
         services.AddTransient<TokenAuthHandler>();
         services.AddTransient<EnderecoDinamicoHandler>();
 
@@ -62,6 +63,7 @@ public static class MauiProgram
         services.AddTransient<PlantaViewModel>();
         services.AddTransient<CamadaEdicaoViewModel>();
         services.AddTransient<HistoricoViewModel>();
+        services.AddTransient<RevisaoEdicoesViewModel>();
 
         services.AddTransient<LoginPage>();
         services.AddTransient<ProjetosPage>();
@@ -69,5 +71,6 @@ public static class MauiProgram
         services.AddTransient<PlantaPage>();
         services.AddTransient<CamadaEdicaoPage>();
         services.AddTransient<HistoricoPage>();
+        services.AddTransient<RevisaoEdicoesPage>();
     }
 }

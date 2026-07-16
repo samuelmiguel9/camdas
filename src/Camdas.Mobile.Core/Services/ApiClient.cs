@@ -174,4 +174,33 @@ public sealed class ApiClient(HttpClient httpClient) : IApiClient
 
     public async Task<IReadOnlyList<HistoricoDto>> ObterHistoricoAsync(Guid plantaId, CancellationToken ct = default) =>
         (await httpClient.GetFromJsonAsync<List<HistoricoDto>>($"api/plantas/{plantaId}/historico", ApiJsonOptions.Padrao, ct))!;
+
+    public async Task<EdicaoPendenteDto> SolicitarEdicaoCamadaAsync(
+        Guid plantaId, Guid? camadaId, TipoOperacaoEdicaoPendente tipoOperacao, string dadosDepoisJson,
+        string responsavel, string motivo, CancellationToken ct = default)
+    {
+        var resposta = await httpClient.PostAsJsonAsync(
+            $"api/plantas/{plantaId}/edicoes-pendentes",
+            new SolicitarEdicaoCamadaRequest(camadaId, tipoOperacao, dadosDepoisJson, responsavel, motivo),
+            ApiJsonOptions.Padrao, ct);
+        resposta.EnsureSuccessStatusCode();
+        return (await resposta.Content.ReadFromJsonAsync<EdicaoPendenteDto>(ApiJsonOptions.Padrao, ct))!;
+    }
+
+    public async Task<IReadOnlyList<EdicaoPendenteDto>> ListarEdicoesPendentesAsync(Guid plantaId, CancellationToken ct = default) =>
+        (await httpClient.GetFromJsonAsync<List<EdicaoPendenteDto>>($"api/plantas/{plantaId}/edicoes-pendentes", ApiJsonOptions.Padrao, ct))!;
+
+    public async Task<CamadaDto?> AprovarEdicaoCamadaAsync(Guid plantaId, Guid edicaoId, CancellationToken ct = default)
+    {
+        var resposta = await httpClient.PostAsync($"api/plantas/{plantaId}/edicoes-pendentes/{edicaoId}/aprovar", null, ct);
+        resposta.EnsureSuccessStatusCode();
+        return await resposta.Content.ReadFromJsonAsync<CamadaDto?>(ApiJsonOptions.Padrao, ct);
+    }
+
+    public async Task RejeitarEdicaoCamadaAsync(Guid plantaId, Guid edicaoId, string motivo, CancellationToken ct = default)
+    {
+        var resposta = await httpClient.PostAsJsonAsync(
+            $"api/plantas/{plantaId}/edicoes-pendentes/{edicaoId}/rejeitar", new RejeitarEdicaoCamadaRequest(motivo), ApiJsonOptions.Padrao, ct);
+        resposta.EnsureSuccessStatusCode();
+    }
 }

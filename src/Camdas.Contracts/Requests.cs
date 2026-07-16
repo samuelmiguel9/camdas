@@ -1,3 +1,5 @@
+using Camdas.Domain.Enums;
+
 namespace Camdas.Contracts;
 
 public sealed record CriarProjetoRequest(string Nome, string? Descricao);
@@ -15,6 +17,15 @@ public sealed record EmitirTokenRequest(Guid UsuarioId);
 public sealed record EmitirTokenResponse(string Token);
 
 public sealed record CriarUsuarioRequest(string Nome, string Email);
+
+public sealed record SolicitarEdicaoCamadaRequest(
+    Guid? CamadaId,
+    TipoOperacaoEdicaoPendente TipoOperacao,
+    string DadosDepoisJson,
+    string Responsavel,
+    string Motivo);
+
+public sealed record RejeitarEdicaoCamadaRequest(string Motivo);
 
 /// <summary>
 /// Nomes dos campos do formulário multipart usado por POST /api/plantas — evita strings mágicas

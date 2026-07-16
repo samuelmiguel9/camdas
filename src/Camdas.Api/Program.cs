@@ -37,6 +37,7 @@ builder.Services.AddScoped<IProjetoRepository, ProjetoRepositoryEfCore>();
 builder.Services.AddScoped<IPlantaRepository, PlantaRepositoryEfCore>();
 builder.Services.AddScoped<IUsuarioRepository, UsuarioRepositoryEfCore>();
 builder.Services.AddScoped<IHistoricoRepository, HistoricoRepositoryEfCore>();
+builder.Services.AddScoped<IEdicaoPendenteRepository, EdicaoPendenteRepositoryEfCore>();
 builder.Services.AddScoped<IUnitOfWork, UnitOfWorkEfCore>();
 builder.Services.AddScoped<IConversorPdfParaImagem, ConversorPdfParaImagemPdfium>();
 builder.Services.AddSingleton<IClock, RelogioSistema>();

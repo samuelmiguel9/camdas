@@ -19,9 +19,19 @@
 <div class="row">
     <div class="col-md-3">
         <h5>Camadas</h5>
+
+        @{ var edicaoDeOrdem = EdicaoPendente(null); }
+        @if (edicaoDeOrdem is not null)
+        {
+            <p class="camada-pendente-aviso" title="@DetalhesEdicaoPendente(edicaoDeOrdem)">
+                ⏳ Reordenação pendente de aprovação no Android
+            </p>
+        }
+
         <div class="camadas-painel">
             @foreach (var camada in ViewModel.Camadas)
             {
+                var edicaoPendente = EdicaoPendente(camada.Id);
                 <div class="camada-linha">
                     <!-- Olho: sempre mostra um glifo (aberto/fechado) pra continuar visível e clicável mesmo
                          com a camada oculta — antes sumia por completo e ficava impossível achar o botão
@@ -44,6 +54,10 @@
                             @if (camada.Bloqueada)
                             {
                                 <span class="camada-cadeado-inline">🔒</span>
+                            }
+                            @if (edicaoPendente is not null)
+                            {
+                                <span class="camada-pendente-inline" title="@DetalhesEdicaoPendente(edicaoPendente)">⏳</span>
                             }
                         </span>
                         <input class="camada-opacidade" type="range" min="0" max="1" step="0.05"
@@ -290,6 +304,15 @@
         using var dados = imagem.Encode(SKEncodedImageFormat.Png, 90);
         return $"data:image/png;base64,{Convert.ToBase64String(dados.ToArray())}";
     }
+
+    /// <summary>Primeira edição pendente para a camada (ou, com <paramref name="camadaId"/> nulo, a
+    /// reordenação pendente que se aplica à planta inteira) — usada só pra exibir o aviso "⏳",
+    /// aprovação de verdade só acontece no Android.</summary>
+    private Camdas.Contracts.EdicaoPendenteDto? EdicaoPendente(Guid? camadaId) =>
+        ViewModel.Planta?.EdicoesPendentes.FirstOrDefault(e => e.CamadaId == camadaId);
+
+    private static string DetalhesEdicaoPendente(Camdas.Contracts.EdicaoPendenteDto edicao) =>
+        $"Pendente de aprovação no Android — {edicao.Responsavel}, {edicao.DataSolicitacao:dd/MM/yyyy HH:mm}: {edicao.Motivo}";
 
     private void AoPropriedadeMudar(object? remetente, System.ComponentModel.PropertyChangedEventArgs args)
     {

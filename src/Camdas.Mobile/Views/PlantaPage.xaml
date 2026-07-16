@@ -11,7 +11,10 @@
 
     <Grid Padding="8" RowDefinitions="Auto,Auto,*,Auto,Auto,Auto" RowSpacing="6">
 
-        <Button Grid.Row="0" Text="Histórico" Clicked="OnAbrirHistoricoClicked" HorizontalOptions="Start" />
+        <HorizontalStackLayout Grid.Row="0" Spacing="8">
+            <Button Text="Histórico" Clicked="OnAbrirHistoricoClicked" />
+            <Button Text="⏳ Edições pendentes (Web)" Clicked="OnAbrirEdicoesPendentesClicked" />
+        </HorizontalStackLayout>
 
         <!-- Controle de zoom da visualização geral (só esta tela — a tela de desenho de camada
              continua com o encaixe automático de sempre, ver comentário em PlantaCanvasView.Zoom). -->

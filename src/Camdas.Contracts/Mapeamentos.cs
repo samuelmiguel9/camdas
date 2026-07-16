@@ -33,7 +33,8 @@ public static class Mapeamentos
             planta.TipoArquivoOrigem,
             planta.CaminhoArquivoOriginal,
             planta.DataImportacao,
-            planta.Camadas.Select(c => c.ParaDto()).ToList());
+            planta.Camadas.Select(c => c.ParaDto()).ToList(),
+            Array.Empty<EdicaoPendenteDto>());
 
     public static UsuarioDto ParaDto(this Usuario usuario) =>
         new(usuario.Id, usuario.Nome, usuario.Email, usuario.Ativo);
@@ -49,4 +50,19 @@ public static class Mapeamentos
             historico.DataHora,
             historico.DadosAnterioresJson,
             historico.DadosNovosJson);
+
+    public static EdicaoPendenteDto ParaDto(this EdicaoPendenteCamada edicao) =>
+        new(
+            edicao.Id,
+            edicao.PlantaId,
+            edicao.CamadaId,
+            edicao.TipoOperacao,
+            edicao.DadosAntesJson,
+            edicao.DadosDepoisJson,
+            edicao.Responsavel,
+            edicao.Motivo,
+            edicao.DataSolicitacao,
+            edicao.Status,
+            edicao.DataResposta,
+            edicao.MotivoRejeicao);
 }

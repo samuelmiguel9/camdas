@@ -26,7 +26,7 @@ public class CamadaEdicaoViewModelTests
     public async Task Carregar_deve_popular_camada_unica_e_imagem_base()
     {
         var camada = NovaCamada();
-        var planta = new PlantaDto(Guid.NewGuid(), Guid.NewGuid(), "Casa Alfa", null, null, TipoArquivoOrigem.Imagem, "/a.png", DateTime.UtcNow, [camada]);
+        var planta = new PlantaDto(Guid.NewGuid(), Guid.NewGuid(), "Casa Alfa", null, null, TipoArquivoOrigem.Imagem, "/a.png", DateTime.UtcNow, [camada], []);
 
         var apiClient = Substitute.For<IApiClient>();
         apiClient.ObterPlantaAsync(planta.Id, Arg.Any<CancellationToken>()).Returns(planta);
@@ -45,7 +45,7 @@ public class CamadaEdicaoViewModelTests
     public async Task Salvar_deve_enviar_o_bitmap_e_disparar_evento_de_camada_salva()
     {
         var camada = NovaCamada();
-        var planta = new PlantaDto(Guid.NewGuid(), Guid.NewGuid(), "Casa Alfa", null, null, TipoArquivoOrigem.Imagem, "/a.png", DateTime.UtcNow, [camada]);
+        var planta = new PlantaDto(Guid.NewGuid(), Guid.NewGuid(), "Casa Alfa", null, null, TipoArquivoOrigem.Imagem, "/a.png", DateTime.UtcNow, [camada], []);
 
         var apiClient = Substitute.For<IApiClient>();
         apiClient.ObterPlantaAsync(planta.Id, Arg.Any<CancellationToken>()).Returns(planta);
@@ -70,7 +70,7 @@ public class CamadaEdicaoViewModelTests
     public async Task Salvar_sem_nada_desenhado_deve_mostrar_mensagem_e_nao_chamar_api()
     {
         var camada = NovaCamada();
-        var planta = new PlantaDto(Guid.NewGuid(), Guid.NewGuid(), "Casa Alfa", null, null, TipoArquivoOrigem.Imagem, "/a.png", DateTime.UtcNow, [camada]);
+        var planta = new PlantaDto(Guid.NewGuid(), Guid.NewGuid(), "Casa Alfa", null, null, TipoArquivoOrigem.Imagem, "/a.png", DateTime.UtcNow, [camada], []);
 
         var apiClient = Substitute.For<IApiClient>();
         apiClient.ObterPlantaAsync(planta.Id, Arg.Any<CancellationToken>()).Returns(planta);
