@@ -150,21 +150,19 @@
 }
 
 /* Wrapper com barra de rolagem: a planta pode ficar maior que a área visível (zoom alto ou imagem
-   grande) — sem isto ela ficava cortada, sem forma de ver o restante. */
+   grande) — sem isto ela ficava cortada, sem forma de ver o restante. Altura aumentada (75vh -> 85vh)
+   pra usar mais a tela disponível, mesmo pedido de "ampliar" a visualização. */
 .planta-canvas-scroll {
-    max-height: 75vh;
+    max-height: 85vh;
     overflow: auto;
     border: 1px solid #dee2e6;
     border-radius: 4px;
+    cursor: grab;
 }
 
-.planta-canvas-scroll ::deep canvas {
-    cursor: zoom-in;
-}
-
-/* Visualização ampliada dentro do próprio site: clicar na planta ou no botão "Ampliar" abre isto
-   por cima do conteúdo (sem navegar pra outra página), pedido pra melhorar a área de visualização
-   que ficava pequena demais dentro da coluna lateral. */
+/* Visualização ampliada dentro do próprio site: o botão "Ampliar" abre isto por cima do conteúdo
+   (sem navegar pra outra página), pedido pra melhorar a área de visualização que ficava pequena
+   demais dentro da coluna lateral. */
 .planta-fullscreen-overlay {
     position: fixed;
     inset: 0;

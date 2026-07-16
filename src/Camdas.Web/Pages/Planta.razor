@@ -97,7 +97,7 @@
             <!-- Wrapper com scroll: quando o zoom deixa a planta maior que a área visível, dá pra
                  percorrer com a barra de rolagem em vez de ficar cortada sem forma de ver o resto
                  (bug reportado: "não consigo visualizar a planta inteira"). -->
-            <div class="planta-canvas-scroll" id="planta-canvas-wrapper" @onclick="AbrirTelaCheia" title="Clique para ampliar">
+            <div class="planta-canvas-scroll" id="planta-canvas-wrapper">
                 <SKCanvasView @ref="_canvasView"
                               WidthRequest="@((int)(ViewModel.ImagemBase.Width * _zoom))"
                               HeightRequest="@((int)(ViewModel.ImagemBase.Height * _zoom))"
@@ -184,6 +184,13 @@
             await AjustarZoomParaTelaAsync(telaCheiaAlvo);
             (telaCheiaAlvo ? _canvasViewTelaCheia : _canvasView)?.Invalidate();
         }
+
+        if (ViewModel.ImagemBase is not null)
+        {
+            await JS.InvokeVoidAsync("camdasInterop.habilitarArrastarPan", "planta-canvas-wrapper");
+            if (_telaCheia)
+                await JS.InvokeVoidAsync("camdasInterop.habilitarArrastarPan", "planta-fullscreen-wrapper");
+        }
     }
 
     private void Desenhar(SKPaintSurfaceEventArgs args)
@@ -207,12 +214,14 @@
         });
     }
 
-    /// <summary>Mede via JS interop o tamanho real do container (coluna lateral ou overlay de tela
-    /// cheia) pra calcular o zoom que encaixa a planta inteira, em vez de depender de uma estimativa
-    /// fixa que não refletia o tamanho real da tela do usuário.</summary>
+    /// <summary>Mede via JS interop a largura real do container (coluna lateral ou overlay de tela
+    /// cheia) pra calcular o zoom que preenche a largura disponível — só a largura, igual ao app
+    /// Android (PlantaPage.AjustarZoomParaTela): encaixar também a altura deixava o zoom minúsculo
+    /// pra plantas altas, com metade da tela ociosa (bug reportado: "aumente" a visualização). O
+    /// excesso de altura, se houver, é resolvido com o scroll do próprio wrapper.</summary>
     private async Task AjustarZoomParaTelaAsync(bool telaCheia)
     {
-        if (ViewModel.ImagemBase is not { } imagemBase || imagemBase.Width <= 0 || imagemBase.Height <= 0)
+        if (ViewModel.ImagemBase is not { } imagemBase || imagemBase.Width <= 0)
             return;
 
         var elementId = telaCheia ? "planta-fullscreen-wrapper" : "planta-canvas-wrapper";
@@ -227,11 +236,7 @@
         }
 
         var larguraDisponivel = tamanho is { Width: > 0 } ? tamanho.Width : LarguraColunaAproximada;
-        var alturaDisponivel = tamanho is { Height: > 0 } ? tamanho.Height : imagemBase.Height;
-
-        var zoomParaLargura = larguraDisponivel / imagemBase.Width;
-        var zoomParaAltura = alturaDisponivel / imagemBase.Height;
-        AjustarZoom(Math.Min(1.0, Math.Min(zoomParaLargura, zoomParaAltura)));
+        AjustarZoom(Math.Min(1.0, larguraDisponivel / imagemBase.Width));
     }
 
     private void AbrirTelaCheia()

@@ -16,10 +16,11 @@ namespace Camdas.Mobile.ViewModels;
 /// acontece numa tela isolada por camada (<see cref="CamadaEdicaoViewModel"/>/CamadaEdicaoPage), pra
 /// não misturar o traço de uma camada nova com as demais enquanto ela está sendo criada/editada.
 ///
-/// Compartilhada entre Android (mestre) e Web (auxiliar): <paramref name="plataformaEdicao"/> decide
-/// se as edições de visibilidade/opacidade/bloqueio/ordem/exclusão aplicam direto (Android) ou viram
-/// uma <see cref="EdicaoPendenteDto"/> aguardando aprovação de um técnico (Web) — ver
-/// <see cref="SolicitarOuExecutarAsync"/>.
+/// Compartilhada entre Android (mestre) e Web (auxiliar): <paramref name="plataformaEdicao"/> decide,
+/// por tipo de operação, se a edição aplica direto (sempre no Android) ou vira uma
+/// <see cref="EdicaoPendenteDto"/> aguardando aprovação de um técnico — na Web só "Excluir" passa por
+/// aprovação (apaga o traço junto); visibilidade/opacidade/bloqueio/ordem são livres, por não serem
+/// uma alteração crítica — ver <see cref="SolicitarOuExecutarAsync"/>.
 /// </summary>
 public partial class PlantaViewModel(IApiClient apiClient, ISalvadorGaleria salvadorGaleria, IPlataformaEdicao plataformaEdicao) : BaseViewModel
 {
@@ -414,13 +415,15 @@ public partial class PlantaViewModel(IApiClient apiClient, ISalvadorGaleria salv
     }
 
     /// <summary>
-    /// Quando <see cref="IPlataformaEdicao.ExigeAprovacao"/> é true (Web), registra a mudança como
-    /// pendente em vez de deixar o chamador aplicá-la direto, e retorna true (chamador deve parar).
-    /// No Android retorna false direto, sem pedir nada — chamador segue com a execução normal.
+    /// Quando <see cref="IPlataformaEdicao.PrecisaAprovacao"/> retorna true pra este tipo de operação
+    /// (Web, só em "Excluir" hoje — visibilidade/opacidade/bloqueio/ordem são livres), registra a
+    /// mudança como pendente em vez de deixar o chamador aplicá-la direto, e retorna true (chamador
+    /// deve parar). No Android retorna false direto, sem pedir nada — chamador segue com a execução
+    /// normal.
     /// </summary>
     private async Task<bool> SolicitarOuExecutarAsync(Guid? camadaId, TipoOperacaoEdicaoPendente tipoOperacao, string dadosDepoisJson)
     {
-        if (!plataformaEdicao.ExigeAprovacao)
+        if (!plataformaEdicao.PrecisaAprovacao(tipoOperacao))
             return false;
 
         var justificativa = await plataformaEdicao.PedirJustificativaAsync();
