@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using Camdas.Contracts;
+using Camdas.Mobile.Rendering;
 using Camdas.Mobile.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -70,7 +71,7 @@ public partial class PlantaViewModel(IApiClient apiClient) : BaseViewModel
 
         ImagemBase?.Dispose();
         var bytesBase = await apiClient.ObterArquivoPlantaAsync(Planta.Id);
-        ImagemBase = SKBitmap.Decode(bytesBase);
+        ImagemBase = BitmapDecodificacao.DecodificarLimitado(bytesBase);
 
         foreach (var bitmap in ImagensPorCamada.Values)
             bitmap.Dispose();
@@ -79,7 +80,9 @@ public partial class PlantaViewModel(IApiClient apiClient) : BaseViewModel
         foreach (var camada in Camadas.Where(c => c.TemImagemRaster))
         {
             var bytesCamada = await apiClient.ObterImagemCamadaAsync(Planta.Id, camada.Id);
-            ImagensPorCamada[camada.Id] = SKBitmap.Decode(bytesCamada);
+            var bitmap = BitmapDecodificacao.DecodificarLimitado(bytesCamada);
+            if (bitmap is not null)
+                ImagensPorCamada[camada.Id] = bitmap;
         }
     }
 

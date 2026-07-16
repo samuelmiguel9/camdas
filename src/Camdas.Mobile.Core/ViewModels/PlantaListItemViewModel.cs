@@ -33,7 +33,7 @@ public sealed partial class PlantaListItemViewModel : ObservableObject
     {
         try
         {
-            using var imagemBase = SKBitmap.Decode(await _apiClient.ObterArquivoPlantaAsync(Planta.Id));
+            using var imagemBase = BitmapDecodificacao.DecodificarLimitado(await _apiClient.ObterArquivoPlantaAsync(Planta.Id));
             if (imagemBase is null)
                 return;
 
@@ -41,7 +41,11 @@ public sealed partial class PlantaListItemViewModel : ObservableObject
             try
             {
                 foreach (var camada in Planta.Camadas.Where(c => c.TemImagemRaster))
-                    imagensPorCamada[camada.Id] = SKBitmap.Decode(await _apiClient.ObterImagemCamadaAsync(Planta.Id, camada.Id));
+                {
+                    var bitmap = BitmapDecodificacao.DecodificarLimitado(await _apiClient.ObterImagemCamadaAsync(Planta.Id, camada.Id));
+                    if (bitmap is not null)
+                        imagensPorCamada[camada.Id] = bitmap;
+                }
 
                 using var composta = new SKBitmap(imagemBase.Width, imagemBase.Height);
                 using (var canvas = new SKCanvas(composta))
