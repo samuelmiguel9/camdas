@@ -135,3 +135,42 @@
     border: 1px solid #dee2e6;
     border-radius: 4px;
 }
+
+.planta-canvas-scroll ::deep canvas {
+    cursor: zoom-in;
+}
+
+/* Visualização ampliada dentro do próprio site: clicar na planta ou no botão "Ampliar" abre isto
+   por cima do conteúdo (sem navegar pra outra página), pedido pra melhorar a área de visualização
+   que ficava pequena demais dentro da coluna lateral. */
+.planta-fullscreen-overlay {
+    position: fixed;
+    inset: 0;
+    background-color: rgba(0, 0, 0, 0.85);
+    z-index: 1050;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+}
+
+.planta-fullscreen-conteudo {
+    background-color: #fff;
+    border-radius: 6px;
+    padding: 12px;
+    max-width: 100%;
+    max-height: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.planta-fullscreen-controles {
+    margin-bottom: 0;
+}
+
+.planta-fullscreen-scroll {
+    max-height: calc(100vh - 96px);
+    max-width: calc(100vw - 96px);
+    border-color: #ccc;
+}
