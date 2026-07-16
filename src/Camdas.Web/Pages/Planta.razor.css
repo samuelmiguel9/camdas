@@ -106,6 +106,15 @@
     color: #ffffff;
 }
 
+.camada-excluir {
+    color: #e74c3c;
+    font-size: 0.9rem;
+}
+
+.camada-excluir:hover {
+    color: #ff6b5b;
+}
+
 .planta-zoom-controles {
     display: flex;
     align-items: center;

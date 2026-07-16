@@ -9,7 +9,7 @@ namespace Camdas.Mobile.Tests.Rendering;
 public class PlantaOverlayRendererTests
 {
     private static CamadaDto NovaCamada(bool visivel, double opacidade = 1.0) =>
-        new(Guid.NewGuid(), Guid.NewGuid(), "Elétrica", visivel, false, 1, false, opacidade);
+        new(Guid.NewGuid(), Guid.NewGuid(), "Elétrica", visivel, false, false, 1, false, opacidade);
 
     [Fact]
     public void Deve_desenhar_imagem_base_antes_das_camadas()

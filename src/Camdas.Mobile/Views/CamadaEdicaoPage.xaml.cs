@@ -1,4 +1,5 @@
 using Camdas.Mobile.ViewModels;
+using SkiaSharp;
 
 namespace Camdas.Mobile.Views;
 
@@ -18,6 +19,10 @@ public partial class CamadaEdicaoPage : ContentPage
         _viewModel = viewModel;
         BindingContext = viewModel;
         viewModel.CamadaSalva += async (_, _) => await Shell.Current.GoToAsync("..");
+        Canvas.SolicitarTexto += OnCanvasSolicitarTexto;
+        // Auto-salva um rascunho local a cada alteração (traço solto, texto, desfazer/refazer,
+        // limpar) — não perde o trabalho se o app fechar antes de "Salvar camada" mandar pro servidor.
+        Canvas.DesenhoAlterado += async (_, _) => await _viewModel.SalvarRascunhoAsync();
     }
 
     protected override async void OnAppearing()
@@ -43,6 +48,11 @@ public partial class CamadaEdicaoPage : ContentPage
 
         zoom = Math.Clamp(zoom, (float)ZoomSlider.Minimum, (float)ZoomSlider.Maximum);
 
+        // Reseta o pan a cada mudança de zoom — sem isso, arrastar demais a planta (PanX/PanY) e
+        // depois mudar o zoom pode deixar a imagem fora da área visível sem um jeito óbvio de achar
+        // o caminho de volta. Mudar o zoom sempre recentraliza.
+        Canvas.PanX = 0;
+        Canvas.PanY = 0;
         Canvas.UsarResolucaoNativa = true;
         Canvas.Zoom = zoom;
         Canvas.WidthRequest = imagemBase.Width * zoom;
@@ -75,7 +85,35 @@ public partial class CamadaEdicaoPage : ContentPage
             _viewModel.EscolherCorCommand.Execute(cor);
     }
 
-    private void OnDesfazerClicked(object? sender, EventArgs e) => Canvas.DesfazerUltimoTraco();
-
     private void OnLimparClicked(object? sender, EventArgs e) => Canvas.LimparCamadaAtiva();
+
+    private void OnDesfazerClicked(object? sender, EventArgs e) => Canvas.DesfazerUltimaAcao();
+
+    private void OnRefazerClicked(object? sender, EventArgs e) => Canvas.RefazerAcao();
+
+    /// <summary>Alterna o "modo texto": enquanto ligado, tocar no canvas não desenha, dispara
+    /// <see cref="PlantaCanvasView.SolicitarTexto"/> — o próprio botão fica destacado (fundo escuro)
+    /// pra indicar que está ativo, já que não há cursor/indicador visual do modo no canvas.</summary>
+    private void OnAlternarModoTextoClicked(object? sender, EventArgs e)
+    {
+        Canvas.ModoTexto = !Canvas.ModoTexto;
+        BotaoTexto.BackgroundColor = Canvas.ModoTexto ? Color.FromArgb("#333") : Colors.Transparent;
+        BotaoTexto.TextColor = Canvas.ModoTexto ? Colors.White : Color.FromArgb("#333");
+    }
+
+    private async void OnCanvasSolicitarTexto(object? sender, SKPoint ponto)
+    {
+        var texto = await DisplayPromptAsync("Adicionar texto", "Escreva o texto:");
+
+        // Sai do modo texto depois de um toque, mesmo se cancelar — evita o usuário ficar "preso"
+        // sem conseguir voltar a desenhar sem notar que o modo continua ligado.
+        Canvas.ModoTexto = false;
+        BotaoTexto.BackgroundColor = Colors.Transparent;
+        BotaoTexto.TextColor = Color.FromArgb("#333");
+
+        if (string.IsNullOrWhiteSpace(texto))
+            return;
+
+        Canvas.AdicionarTexto(texto, ponto, _viewModel.CorTraco, tamanhoFonte: Math.Max(24f, _viewModel.EspessuraTraco * 4));
+    }
 }

@@ -4,6 +4,7 @@
 @implements IDisposable
 @inject PlantasDoProjetoViewModel ViewModel
 @inject NavigationManager Navegacao
+@inject IJSRuntime JS
 
 <PageTitle>Plantas — Camdas</PageTitle>
 
@@ -34,6 +35,7 @@
                     {
                         <p class="card-text text-muted">@item.Planta.NomeCliente</p>
                     }
+                    <button type="button" class="btn btn-sm btn-outline-danger" @onclick="() => ExcluirPlantaAsync(item)" @onclick:stopPropagation="true">Excluir</button>
                 </div>
             </div>
         </div>
@@ -63,6 +65,15 @@
     }
 
     private void AbrirPlanta(PlantaDto planta) => Navegacao.NavigateTo($"plantas/{planta.Id}");
+
+    private async Task ExcluirPlantaAsync(PlantaListItemViewModel item)
+    {
+        var confirmar = await JS.InvokeAsync<bool>("confirm", $"Excluir '{item.Planta.Nome}'? Isso apaga também todas as camadas dela, sem volta.");
+        if (!confirmar)
+            return;
+
+        await ViewModel.RemoverAsync(item);
+    }
 
     private static string MiniaturaSrc(byte[] png) => $"data:image/png;base64,{Convert.ToBase64String(png)}";
 

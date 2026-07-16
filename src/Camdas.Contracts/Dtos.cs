@@ -16,6 +16,7 @@ public sealed record CamadaDto(
     string Nome,
     bool Visivel,
     bool Bloqueada,
+    bool BloqueioAlpha,
     int Ordem,
     bool TemImagemRaster,
     double Opacidade);

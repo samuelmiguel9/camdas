@@ -71,12 +71,24 @@ public sealed class ApiClient(HttpClient httpClient) : IApiClient
     public async Task<byte[]> ObterArquivoPlantaAsync(Guid plantaId, CancellationToken ct = default) =>
         await httpClient.GetByteArrayAsync($"api/plantas/{plantaId}/arquivo", ct);
 
+    public async Task RemoverPlantaAsync(Guid plantaId, CancellationToken ct = default)
+    {
+        var resposta = await httpClient.DeleteAsync($"api/plantas/{plantaId}", ct);
+        resposta.EnsureSuccessStatusCode();
+    }
+
     public async Task<CamadaDto> CriarCamadaAsync(Guid plantaId, string nome, CancellationToken ct = default)
     {
         var resposta = await httpClient.PostAsJsonAsync(
             $"api/plantas/{plantaId}/camadas", new CriarCamadaRequest(nome), ApiJsonOptions.Padrao, ct);
         resposta.EnsureSuccessStatusCode();
         return (await resposta.Content.ReadFromJsonAsync<CamadaDto>(ApiJsonOptions.Padrao, ct))!;
+    }
+
+    public async Task RemoverCamadaAsync(Guid plantaId, Guid camadaId, CancellationToken ct = default)
+    {
+        var resposta = await httpClient.DeleteAsync($"api/plantas/{plantaId}/camadas/{camadaId}", ct);
+        resposta.EnsureSuccessStatusCode();
     }
 
     public async Task<IReadOnlyList<CamadaDto>> ReordenarCamadasAsync(
@@ -113,6 +125,34 @@ public sealed class ApiClient(HttpClient httpClient) : IApiClient
     public async Task<CamadaDto> DesbloquearCamadaAsync(Guid plantaId, Guid camadaId, CancellationToken ct = default)
     {
         var resposta = await httpClient.DeleteAsync($"api/plantas/{plantaId}/camadas/{camadaId}/bloqueio", ct);
+        resposta.EnsureSuccessStatusCode();
+        return (await resposta.Content.ReadFromJsonAsync<CamadaDto>(ApiJsonOptions.Padrao, ct))!;
+    }
+
+    public async Task<CamadaDto> BloquearAlphaCamadaAsync(Guid plantaId, Guid camadaId, CancellationToken ct = default)
+    {
+        var resposta = await httpClient.PostAsync($"api/plantas/{plantaId}/camadas/{camadaId}/bloqueio-alpha", null, ct);
+        resposta.EnsureSuccessStatusCode();
+        return (await resposta.Content.ReadFromJsonAsync<CamadaDto>(ApiJsonOptions.Padrao, ct))!;
+    }
+
+    public async Task<CamadaDto> DesbloquearAlphaCamadaAsync(Guid plantaId, Guid camadaId, CancellationToken ct = default)
+    {
+        var resposta = await httpClient.DeleteAsync($"api/plantas/{plantaId}/camadas/{camadaId}/bloqueio-alpha", ct);
+        resposta.EnsureSuccessStatusCode();
+        return (await resposta.Content.ReadFromJsonAsync<CamadaDto>(ApiJsonOptions.Padrao, ct))!;
+    }
+
+    public async Task<CamadaDto> LimparCamadaAsync(Guid plantaId, Guid camadaId, CancellationToken ct = default)
+    {
+        var resposta = await httpClient.PostAsync($"api/plantas/{plantaId}/camadas/{camadaId}/limpar", null, ct);
+        resposta.EnsureSuccessStatusCode();
+        return (await resposta.Content.ReadFromJsonAsync<CamadaDto>(ApiJsonOptions.Padrao, ct))!;
+    }
+
+    public async Task<CamadaDto> DuplicarCamadaAsync(Guid plantaId, Guid camadaId, CancellationToken ct = default)
+    {
+        var resposta = await httpClient.PostAsync($"api/plantas/{plantaId}/camadas/{camadaId}/duplicar", null, ct);
         resposta.EnsureSuccessStatusCode();
         return (await resposta.Content.ReadFromJsonAsync<CamadaDto>(ApiJsonOptions.Padrao, ct))!;
     }

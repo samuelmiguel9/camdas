@@ -12,7 +12,7 @@ namespace Camdas.Mobile.Tests.ViewModels;
 public class PlantaViewModelTests
 {
     private static CamadaDto NovaCamada(string nome, bool visivel = true, bool bloqueada = false, int ordem = 1, bool temImagemRaster = false) =>
-        new(Guid.NewGuid(), Guid.NewGuid(), nome, visivel, bloqueada, ordem, temImagemRaster, 1.0);
+        new(Guid.NewGuid(), Guid.NewGuid(), nome, visivel, bloqueada, false, ordem, temImagemRaster, 1.0);
 
     private static PlantaDto NovaPlanta(params CamadaDto[] camadas) =>
         new(Guid.NewGuid(), Guid.NewGuid(), "Casa Alfa", null, null, TipoArquivoOrigem.Imagem, "/a.png", DateTime.UtcNow, camadas);
@@ -41,7 +41,7 @@ public class PlantaViewModelTests
         var planta = NovaPlanta(camada1, camada2);
         var apiClient = NovoApiClientCom(planta);
 
-        var viewModel = new PlantaViewModel(apiClient);
+        var viewModel = new PlantaViewModel(apiClient, Substitute.For<ISalvadorGaleria>());
         await viewModel.CarregarAsync(planta.Id);
 
         viewModel.Camadas.Should().HaveCount(2);
@@ -61,7 +61,7 @@ public class PlantaViewModelTests
         apiClient.AlternarVisibilidadeCamadaAsync(planta.Id, camadaEletrica.Id, Arg.Any<CancellationToken>())
             .Returns(camadaEletricaOculta);
 
-        var viewModel = new PlantaViewModel(apiClient);
+        var viewModel = new PlantaViewModel(apiClient, Substitute.For<ISalvadorGaleria>());
         await viewModel.CarregarAsync(planta.Id);
 
         await viewModel.AlternarVisibilidadeCommand.ExecuteAsync(camadaEletrica);
@@ -79,7 +79,7 @@ public class PlantaViewModelTests
         var camadaNova = NovaCamada("Elétrica");
         apiClient.CriarCamadaAsync(planta.Id, "Elétrica", Arg.Any<CancellationToken>()).Returns(camadaNova);
 
-        var viewModel = new PlantaViewModel(apiClient);
+        var viewModel = new PlantaViewModel(apiClient, Substitute.For<ISalvadorGaleria>());
         await viewModel.CarregarAsync(planta.Id);
 
         await viewModel.CriarCamadaAsync("Elétrica");
@@ -95,7 +95,7 @@ public class PlantaViewModelTests
         var planta = NovaPlanta(camada);
         var apiClient = NovoApiClientCom(planta);
 
-        var viewModel = new PlantaViewModel(apiClient);
+        var viewModel = new PlantaViewModel(apiClient, Substitute.For<ISalvadorGaleria>());
         await viewModel.CarregarAsync(planta.Id);
 
         CamadaDto? camadaRecebida = null;
@@ -108,7 +108,7 @@ public class PlantaViewModelTests
     }
 
     [Fact]
-    public async Task MoverCamada_deve_trocar_com_a_vizinha_e_recarregar_com_o_resultado_do_servidor()
+    public async Task ReordenarArrastando_deve_mover_a_camada_para_a_posicao_da_vizinha_e_recarregar_com_o_resultado_do_servidor()
     {
         var camada1 = NovaCamada("Primeira", ordem: 1);
         var camada2 = NovaCamada("Segunda", ordem: 2);
@@ -121,11 +121,11 @@ public class PlantaViewModelTests
         apiClient.ReordenarCamadasAsync(planta.Id, Arg.Any<IReadOnlyList<Guid>>(), Arg.Any<CancellationToken>())
             .Returns([camada1, camada3Reordenada, camada2Reordenada]);
 
-        var viewModel = new PlantaViewModel(apiClient);
+        var viewModel = new PlantaViewModel(apiClient, Substitute.For<ISalvadorGaleria>());
         await viewModel.CarregarAsync(planta.Id);
 
-        // Sobe a "Terceira" uma posição (troca com a "Segunda").
-        await viewModel.MoverCamadaAsync(camada3, paraCima: true);
+        // Arrasta a "Terceira" pra posição da "Segunda".
+        await viewModel.ReordenarArrastandoAsync(camada3, camada2);
 
         await apiClient.Received(1).ReordenarCamadasAsync(
             planta.Id, Arg.Is<IReadOnlyList<Guid>>(ids => ids.SequenceEqual(new[] { camada1.Id, camada3.Id, camada2.Id })),

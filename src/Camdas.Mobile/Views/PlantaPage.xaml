@@ -41,69 +41,125 @@
         <HorizontalStackLayout Grid.Row="3" Spacing="8">
             <Label Text="Camadas" FontAttributes="Bold" VerticalOptions="Center" />
             <Button Text="+ Nova camada" Clicked="OnNovaCamadaClicked" />
+            <Button Text="+ Imagem" Clicked="OnAdicionarImagemClicked" />
+            <Button Text="💾 Salvar tudo (PNG)" Clicked="OnSalvarNaGaleriaClicked" />
         </HorizontalStackLayout>
 
-        <!-- Painel estilo Photoshop: fundo escuro, olho (visibilidade), miniatura em xadrez,
-             nome, opacidade, cadeado (bloqueio); ▲/▼ substituem o drag-and-drop de reordenar do
-             Photoshop (mais confiável em toque, ver comentário na ViewModel). CollectionView rola
-             sozinho quando a lista não cabe na altura disponível (2* da Grid). -->
-        <Border Grid.Row="4" StrokeShape="RoundRectangle 4" Stroke="#1E1E1E" BackgroundColor="#2E2E2E" Padding="0">
-            <CollectionView ItemsSource="{Binding Camadas}" BackgroundColor="Transparent">
-                <CollectionView.ItemTemplate>
-                    <DataTemplate x:DataType="contracts:CamadaDto">
-                        <Grid Padding="6,4" ColumnDefinitions="32,36,*,80,32,28" ColumnSpacing="6" RowDefinitions="Auto" BackgroundColor="Transparent">
-                            <Grid.GestureRecognizers>
-                                <TapGestureRecognizer
-                                    Command="{Binding BindingContext.SelecionarCamadaCommand, Source={RelativeSource AncestorType={x:Type ContentPage}}}"
-                                    CommandParameter="{Binding .}" />
-                            </Grid.GestureRecognizers>
-
-                            <!-- Olho: sempre mostra um glifo (aberto/fechado) pra permanecer visível e clicável
-                                 mesmo com a camada oculta — antes sumia por completo e ficava impossível achar
-                                 o botão pra reexibir a camada. -->
-                            <Button Grid.Column="0" Text="{Binding Visivel, Converter={StaticResource BoolParaTextoConverter}, ConverterParameter='👁;🚫'}"
-                                    FontSize="16" TextColor="#DCDCDC" BackgroundColor="Transparent" Padding="0" BorderWidth="0"
-                                    Command="{Binding BindingContext.AlternarVisibilidadeCommand, Source={RelativeSource AncestorType={x:Type ContentPage}}}"
-                                    CommandParameter="{Binding .}" />
-
-                            <views:CamadaThumbnailView Grid.Column="1" WidthRequest="32" HeightRequest="32"
-                                    CamadaId="{Binding Id}"
-                                    ImagensPorCamada="{Binding BindingContext.ImagensPorCamada, Source={RelativeSource AncestorType={x:Type ContentPage}}}" />
-
-                            <VerticalStackLayout Grid.Column="2" Spacing="0" VerticalOptions="Center">
-                                <HorizontalStackLayout Spacing="4">
-                                    <Label Text="{Binding Nome}" TextColor="#DCDCDC" VerticalOptions="Center" LineBreakMode="TailTruncation" />
-                                    <Label Text="🔒" FontSize="11" TextColor="#DCDCDC" VerticalOptions="Center"
-                                           IsVisible="{Binding Bloqueada}" />
-                                </HorizontalStackLayout>
-                            </VerticalStackLayout>
-
-                            <!-- Opacidade: solta o valor (DragCompleted) só ao final do arrasto, evitando uma
-                                 requisição por tick de slider. -->
-                            <Slider Grid.Column="3" Minimum="0" Maximum="1" Value="{Binding Opacidade, Mode=TwoWay}"
-                                    VerticalOptions="Center"
-                                    DragCompleted="OnOpacidadeSliderDragCompleted" />
-
-                            <!-- Cadeado: só aparece o glifo quando bloqueada, mesma lógica do olho. -->
-                            <Button Grid.Column="4" Text="{Binding Bloqueada, Converter={StaticResource BoolParaTextoConverter}, ConverterParameter='🔒;🔓'}"
-                                    FontSize="14" TextColor="#999999" BackgroundColor="Transparent" Padding="0" BorderWidth="0"
-                                    Command="{Binding BindingContext.AlternarBloqueioCommand, Source={RelativeSource AncestorType={x:Type ContentPage}}}"
-                                    CommandParameter="{Binding .}" />
-
-                            <VerticalStackLayout Grid.Column="5" Spacing="0">
-                                <Button Text="▲" FontSize="9" Padding="2,0" HeightRequest="16" TextColor="#DCDCDC" BackgroundColor="Transparent" BorderWidth="0"
-                                        Command="{Binding BindingContext.MoverCamadaParaCimaCommand, Source={RelativeSource AncestorType={x:Type ContentPage}}}"
+        <!-- Painel estilo Photoshop: fundo escuro, olho (visibilidade), miniatura em xadrez (toque
+             abre o menu de opções da camada), nome, cadeado (só indicador — o botão foi para o
+             menu). A própria linha é arrastável (DragGestureRecognizer/DropGestureRecognizer) pra
+             reordenar soltando sobre outra camada, ou soltando na lixeira ao lado pra excluir —
+             CollectionView rola sozinho quando a lista não cabe na altura disponível (2* da Grid). -->
+        <Grid Grid.Row="4" ColumnDefinitions="*,44" ColumnSpacing="6">
+            <Border Grid.Column="0" StrokeShape="RoundRectangle 4" Stroke="#1E1E1E" BackgroundColor="#2E2E2E" Padding="0">
+                <CollectionView ItemsSource="{Binding Camadas}" BackgroundColor="Transparent">
+                    <CollectionView.ItemTemplate>
+                        <DataTemplate x:DataType="contracts:CamadaDto">
+                            <Grid Padding="6,4" ColumnDefinitions="32,36,*,24" ColumnSpacing="6" RowDefinitions="Auto" BackgroundColor="Transparent">
+                                <Grid.GestureRecognizers>
+                                    <TapGestureRecognizer
+                                        Command="{Binding BindingContext.SelecionarCamadaCommand, Source={RelativeSource AncestorType={x:Type ContentPage}}}"
                                         CommandParameter="{Binding .}" />
-                                <Button Text="▼" FontSize="9" Padding="2,0" HeightRequest="16" TextColor="#DCDCDC" BackgroundColor="Transparent" BorderWidth="0"
-                                        Command="{Binding BindingContext.MoverCamadaParaBaixoCommand, Source={RelativeSource AncestorType={x:Type ContentPage}}}"
+                                    <DragGestureRecognizer CanDrag="True" DragStarting="OnCamadaDragStarting" />
+                                    <DropGestureRecognizer AllowDrop="True" Drop="OnCamadaDrop" />
+                                </Grid.GestureRecognizers>
+
+                                <!-- Olho: sempre mostra um glifo (aberto/fechado) pra permanecer visível e clicável
+                                     mesmo com a camada oculta — antes sumia por completo e ficava impossível achar
+                                     o botão pra reexibir a camada. -->
+                                <Button Grid.Column="0" Text="{Binding Visivel, Converter={StaticResource BoolParaTextoConverter}, ConverterParameter='👁;🚫'}"
+                                        FontSize="16" TextColor="#DCDCDC" BackgroundColor="Transparent" Padding="0" BorderWidth="0"
+                                        Command="{Binding BindingContext.AlternarVisibilidadeCommand, Source={RelativeSource AncestorType={x:Type ContentPage}}}"
                                         CommandParameter="{Binding .}" />
-                            </VerticalStackLayout>
-                        </Grid>
-                    </DataTemplate>
-                </CollectionView.ItemTemplate>
-            </CollectionView>
-        </Border>
+
+                                <views:CamadaThumbnailView Grid.Column="1" WidthRequest="32" HeightRequest="32"
+                                        CamadaId="{Binding Id}"
+                                        ImagensPorCamada="{Binding BindingContext.ImagensPorCamada, Source={RelativeSource AncestorType={x:Type ContentPage}}}">
+                                    <views:CamadaThumbnailView.GestureRecognizers>
+                                        <TapGestureRecognizer
+                                            Command="{Binding BindingContext.AbrirMenuCamadaCommand, Source={RelativeSource AncestorType={x:Type ContentPage}}}"
+                                            CommandParameter="{Binding .}" />
+                                    </views:CamadaThumbnailView.GestureRecognizers>
+                                </views:CamadaThumbnailView>
+
+                                <VerticalStackLayout Grid.Column="2" Spacing="0" VerticalOptions="Center">
+                                    <HorizontalStackLayout Spacing="4">
+                                        <Label Text="{Binding Nome}" TextColor="#DCDCDC" VerticalOptions="Center" LineBreakMode="TailTruncation" />
+                                        <Label Text="🔒" FontSize="11" TextColor="#DCDCDC" VerticalOptions="Center"
+                                               IsVisible="{Binding Bloqueada}" />
+                                        <Label Text="🔐" FontSize="11" TextColor="#DCDCDC" VerticalOptions="Center"
+                                               IsVisible="{Binding BloqueioAlpha}"
+                                               ToolTipProperties.Text="Opacidade bloqueada" />
+                                    </HorizontalStackLayout>
+                                </VerticalStackLayout>
+
+                                <!-- Alça visual: indica que a linha pode ser arrastada pra reordenar/excluir. -->
+                                <Label Grid.Column="3" Text="⠿" FontSize="14" TextColor="#777777"
+                                       HorizontalOptions="Center" VerticalOptions="Center" />
+                            </Grid>
+                        </DataTemplate>
+                    </CollectionView.ItemTemplate>
+                </CollectionView>
+            </Border>
+
+            <!-- Lixeira: solte uma camada arrastada aqui pra excluí-la. -->
+            <Border Grid.Column="1" StrokeShape="RoundRectangle 4" Stroke="#1E1E1E" BackgroundColor="#3A2323" Padding="0">
+                <Border.GestureRecognizers>
+                    <DropGestureRecognizer AllowDrop="True" Drop="OnCamadaDropNaLixeira" />
+                </Border.GestureRecognizers>
+                <Label Text="🗑" FontSize="20" TextColor="#E74C3C" HorizontalOptions="Center" VerticalOptions="Center" />
+            </Border>
+        </Grid>
 
         <Label Grid.Row="5" Text="{Binding MensagemErro}" TextColor="Red" />
+
+        <!-- Menu de opções da camada, aberto ao tocar a miniatura: opacidade, limpar (sem excluir a
+             camada), bloqueio, bloqueio de opacidade, duplicar, excluir. Grid.RowSpan cobre a tela
+             inteira e fica por cima de tudo por ser o último filho do Grid raiz. -->
+        <Grid Grid.Row="0" Grid.RowSpan="6" BackgroundColor="#AA000000"
+              IsVisible="{Binding CamadaMenuAberta, Converter={StaticResource ObjetoNuloParaBoolConverter}, ConverterParameter=inverso}">
+            <Grid.GestureRecognizers>
+                <TapGestureRecognizer Command="{Binding FecharMenuCamadaCommand}" />
+            </Grid.GestureRecognizers>
+
+            <Border Padding="16" Margin="24" BackgroundColor="#2E2E2E" Stroke="#1E1E1E" StrokeShape="RoundRectangle 8"
+                    VerticalOptions="Center" HorizontalOptions="Fill">
+                <Border.GestureRecognizers>
+                    <TapGestureRecognizer />
+                </Border.GestureRecognizers>
+
+                <VerticalStackLayout Spacing="12" BindingContext="{Binding CamadaMenuAberta}" x:DataType="contracts:CamadaDto">
+                    <Label Text="{Binding Nome}" FontAttributes="Bold" FontSize="16" TextColor="White" />
+
+                    <VerticalStackLayout Spacing="4">
+                        <Label Text="Opacidade" TextColor="#CCCCCC" FontSize="12" />
+                        <Slider Minimum="0" Maximum="1" Value="{Binding Opacidade, Mode=TwoWay}"
+                                DragCompleted="OnOpacidadeSliderDragCompleted" />
+                    </VerticalStackLayout>
+
+                    <Button Text="Limpar camada"
+                            Command="{Binding BindingContext.LimparCamadaCommand, Source={RelativeSource AncestorType={x:Type ContentPage}}}"
+                            CommandParameter="{Binding .}" />
+
+                    <Button Text="{Binding Bloqueada, Converter={StaticResource BoolParaTextoConverter}, ConverterParameter='Desbloquear camada;Bloquear camada'}"
+                            Command="{Binding BindingContext.AlternarBloqueioCommand, Source={RelativeSource AncestorType={x:Type ContentPage}}}"
+                            CommandParameter="{Binding .}" />
+
+                    <Button Text="{Binding BloqueioAlpha, Converter={StaticResource BoolParaTextoConverter}, ConverterParameter='Desbloquear opacidade;Bloquear opacidade'}"
+                            Command="{Binding BindingContext.AlternarBloqueioAlphaCommand, Source={RelativeSource AncestorType={x:Type ContentPage}}}"
+                            CommandParameter="{Binding .}" />
+
+                    <Button Text="Duplicar camada"
+                            Command="{Binding BindingContext.DuplicarCamadaCommand, Source={RelativeSource AncestorType={x:Type ContentPage}}}"
+                            CommandParameter="{Binding .}" />
+
+                    <Button Text="Excluir camada" TextColor="#E74C3C"
+                            CommandParameter="{Binding .}" Clicked="OnExcluirCamadaClicked" />
+
+                    <Button Text="Fechar"
+                            Command="{Binding BindingContext.FecharMenuCamadaCommand, Source={RelativeSource AncestorType={x:Type ContentPage}}}" />
+                </VerticalStackLayout>
+            </Border>
+        </Grid>
     </Grid>
 </ContentPage>

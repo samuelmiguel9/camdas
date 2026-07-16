@@ -28,6 +28,27 @@ public partial class PlantasDoProjetoPage : ContentPage
 
     private async void OnImportarClicked(object? sender, EventArgs e)
     {
+        var origem = await DisplayActionSheet("Nova planta — de onde?", "Cancelar", null, "Câmera", "Galeria", "Arquivo (PDF ou imagem)");
+        if (origem is null || origem == "Cancelar")
+            return;
+
+        FileResult? arquivo = origem switch
+        {
+            "Câmera" => await CapturarFotoAsync(),
+            "Galeria" => await MediaPicker.Default.PickPhotoAsync(),
+            _ => await FilePicker.Default.PickAsync(new PickOptions
+            {
+                PickerTitle = "Selecione o PDF ou imagem da planta",
+                FileTypes = new FilePickerFileType(new Dictionary<DevicePlatform, IEnumerable<string>>
+                {
+                    [DevicePlatform.Android] = ["application/pdf", "image/png", "image/jpeg"],
+                }),
+            }),
+        };
+
+        if (arquivo is null)
+            return;
+
         var nome = await DisplayPromptAsync("Nova planta", "Nome da planta");
         if (string.IsNullOrWhiteSpace(nome))
             return;
@@ -35,23 +56,37 @@ public partial class PlantasDoProjetoPage : ContentPage
         var descricao = await DisplayPromptAsync("Nova planta", "Breve descrição (opcional)");
         var nomeCliente = await DisplayPromptAsync("Nova planta", "Nome do cliente (opcional)");
 
-        var arquivo = await FilePicker.Default.PickAsync(new PickOptions
-        {
-            PickerTitle = "Selecione o PDF ou imagem da planta",
-            FileTypes = new FilePickerFileType(new Dictionary<DevicePlatform, IEnumerable<string>>
-            {
-                [DevicePlatform.Android] = ["application/pdf", "image/png", "image/jpeg"],
-            }),
-        });
-
-        if (arquivo is null)
-            return;
-
         var tipo = arquivo.FileName.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase)
             ? TipoArquivoOrigem.Pdf
             : TipoArquivoOrigem.Imagem;
 
         await using var conteudo = await arquivo.OpenReadAsync();
         await _viewModel.ImportarAsync(nome, descricao, nomeCliente, tipo, arquivo.FileName, conteudo);
+    }
+
+    /// <summary>Câmera pode não existir/estar disponível (emulador sem câmera virtual, por
+    /// exemplo) — <see cref="MediaPicker.IsCaptureSupported"/> evita uma exceção nesse caso.</summary>
+    private async Task<FileResult?> CapturarFotoAsync()
+    {
+        if (!MediaPicker.Default.IsCaptureSupported)
+        {
+            await DisplayAlert("Câmera", "Este aparelho não tem câmera disponível.", "OK");
+            return null;
+        }
+
+        return await MediaPicker.Default.CapturePhotoAsync();
+    }
+
+    private async void OnExcluirPlantaClicked(object? sender, EventArgs e)
+    {
+        if (sender is not Button { CommandParameter: PlantaListItemViewModel item })
+            return;
+
+        var confirmar = await DisplayAlert(
+            "Excluir planta", $"Excluir '{item.Planta.Nome}'? Isso apaga também todas as camadas dela, sem volta.", "Excluir", "Cancelar");
+        if (!confirmar)
+            return;
+
+        await _viewModel.RemoverAsync(item);
     }
 }

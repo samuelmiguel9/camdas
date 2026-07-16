@@ -53,7 +53,6 @@ if (string.Equals(builder.Configuration["ArmazenamentoArquivos:Tipo"], "S3", Str
         {
             ServiceURL = builder.Configuration["ArmazenamentoArquivos:S3:EndpointUrl"],
             ForcePathStyle = true, // exigido por endpoints S3-compatíveis fora da AWS
-            // Sem a região certa, a assinatura da requisição (SigV4) fica inválida e o Supabase
             // Storage recusa com 403 Forbidden.
             AuthenticationRegion = builder.Configuration["ArmazenamentoArquivos:S3:Region"] ?? "us-east-1",
             // O SDK, por padrão, inclui o header "User-Agent" entre os headers assinados (SigV4).

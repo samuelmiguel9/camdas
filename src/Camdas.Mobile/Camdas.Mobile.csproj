@@ -25,7 +25,7 @@
 		     por esquecimento. ApplicationVersion (versionCode do Android) continua manual: é um
 		     contador do Android, sem relação com o número semântico de versão. -->
 		<ApplicationDisplayVersion>$([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)..\..\VERSION').Trim())</ApplicationDisplayVersion>
-		<ApplicationVersion>4</ApplicationVersion>
+		<ApplicationVersion>5</ApplicationVersion>
 
 		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">21.0</SupportedOSPlatformVersion>
 	</PropertyGroup>

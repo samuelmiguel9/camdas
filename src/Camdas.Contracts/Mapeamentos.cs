@@ -18,6 +18,7 @@ public static class Mapeamentos
             camada.Nome,
             camada.Visivel,
             camada.Bloqueada,
+            camada.BloqueioAlpha,
             camada.Ordem,
             camada.ImagemRasterCaminho is not null,
             camada.Opacidade);

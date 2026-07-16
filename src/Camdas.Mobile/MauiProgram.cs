@@ -37,6 +37,8 @@ public static class MauiProgram
         services.AddSingleton<ConfiguracaoApi>();
         services.AddSingleton<ResolvedorEnderecoApi>();
         services.AddSingleton<ITokenStore, TokenStoreSecureStorage>();
+        services.AddSingleton<ISalvadorGaleria, SalvadorGaleriaAndroid>();
+        services.AddSingleton<IArmazenamentoRascunho, ArmazenamentoRascunhoArquivo>();
         services.AddTransient<TokenAuthHandler>();
         services.AddTransient<EnderecoDinamicoHandler>();
 
