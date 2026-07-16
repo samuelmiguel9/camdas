@@ -1,0 +1,69 @@
+ANÁLISE DE CRASH — Camdas.Mobile (Galaxy Tab A, SM-P580, Android 8.1)
+=====================================================================
+
+Foram capturados 4 crashes no log do dispositivo (adb logcat), todos com a
+mesma assinatura:
+
+  Fatal signal 11 (SIGSEGV), code 1 (SEGV_MAPERR), fault addr 0x0
+  Cause: null pointer dereference
+  backtrace: #00 pc 000eed68  libSkiaSharp.so
+
+Ou seja: um crash NATIVO (fora do C#/.NET gerenciado), sempre no mesmo ponto
+exato dentro da biblioteca gráfica SkiaSharp, independente da causa que
+disparou o toque na tela.
+
+-----------------------------------------------------------------
+Crash #1 — 07-16 08:56:55 (pid 17067)
+Gatilho: caneta S Pen pairando perto da tela SEM tocar (ACTION_HOVER_ENTER,
+deviceType=stylus). Build instalado: com.companyname.camdas.mobile-Y0wYBc81USTXeqjuMIjkGA==
+(build anterior à correção de hover).
+
+Crash #2 — 07-16 08:58:20 (pid 17693)
+Mesmo gatilho: hover da S Pen (ACTION_HOVER_ENTER). Mesmo build anterior.
+
+  → Correção aplicada: suprimido o listener de hover no nível nativo do
+    Android (PlantaCanvasView.SupressorDeHover), já que o app nunca usou
+    hover pra nada. Commit 8e83210.
+
+-----------------------------------------------------------------
+Crash #3 — 07-16 09:03:08 (pid 17909)
+Gatilho: DIFERENTE — não foi toque nem hover. Aconteceu logo após
+"InputMethodManager: Starting input" / "SamsungKeypad onStartInput", ou
+seja, o TECLADO on-screen abrindo (ex.: ao digitar o nome de uma camada
+nova, projeto novo, ou texto na ferramenta "T"). Build: mesmo hash do
+crash #1/#2 (ainda sem a correção de hover, rodando antes do install).
+
+Crash #4 — 07-16 09:15:09 (pid 19410)
+MESMO gatilho (teclado abrindo) — mas já com o build COM a correção de
+hover instalada (hash diferente: com.companyname.camdas.mobile-6WTVQl4HmTTWdU93IlONwA==).
+Ou seja: a correção do hover não resolveu esse crash, porque é uma causa
+diferente — confirma o que o usuário relatou ("crashou usando o dedo
+também").
+
+-----------------------------------------------------------------
+CAUSA RAIZ (crashes #3 e #4): o teclado on-screen abrindo redimensiona a
+Activity inteira por padrão no Android — o PlantaCanvasView (SKCanvasView)
+é redimensionado/recriado junto. Nesse instante, o Skia parece tentar
+desenhar numa superfície nativa que está sendo recriada, e crasha com
+ponteiro nulo. Sempre no mesmo offset da lib (000eed68), reforçando que é
+o mesmo tipo de problema de fundo: qualquer evento que force um resize/
+recriação da superfície do canvas nesse dispositivo antigo (Android 8.1,
+32-bit) tem chance de derrubar o Skia.
+
+CORREÇÃO APLICADA (ainda não testada no aparelho, próximo passo):
+MainActivity.cs — WindowSoftInputMode = SoftInput.AdjustPan.
+Isso faz o teclado só SOBREPOR a tela (pan), em vez de redimensionar a
+Activity — o canvas nunca é recriado quando o teclado aparece.
+
+-----------------------------------------------------------------
+LIMITAÇÃO DA ANÁLISE: o backtrace nativo tem só 1 frame (biblioteca sem
+símbolos de debug, build Release) — não dá pra ver a função exata dentro
+do SkiaSharp que falha, só o endereço binário. A causa raiz foi inferida
+pelo padrão de quando o crash acontece (sempre logo após um evento que
+força resize/recriação de superfície: hover em versões antigas do driver,
+ou teclado abrindo), não por stack trace completo.
+
+Se o crash voltar a acontecer mesmo depois do AdjustPan, o próximo passo
+seria tentar uma versão mais nova do pacote SkiaSharp.Views.Maui.Controls
+(atualmente 2.88.8) — pode ser um bug já corrigido em versão mais recente
+da lib, específico de dispositivos Android 8.1 32-bit antigos.
