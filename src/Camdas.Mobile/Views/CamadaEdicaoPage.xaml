@@ -21,6 +21,8 @@
                 <BoxView WidthRequest="1" HeightRequest="24" Color="#D8D0C0" />
                 <Button x:Name="BotaoTexto" Text="T" FontSize="18" FontAttributes="Bold" Padding="8,0"
                         BackgroundColor="Transparent" TextColor="#333" Clicked="OnAlternarModoTextoClicked" />
+                <Button x:Name="BotaoPan" Text="✋" FontSize="18" Padding="8,0"
+                        BackgroundColor="Transparent" TextColor="#333" Clicked="OnAlternarModoPanClicked" />
             </HorizontalStackLayout>
         </Border>
 
@@ -40,8 +42,8 @@
         <!-- Sem ScrollView de propósito: um ScrollView ao redor do canvas competia com o próprio
              gesto de desenhar (arrastar o dedo virava rolagem do ScrollView pai a partir do primeiro
              Moved, travando o traço no ponto inicial mesmo com RequestDisallowInterceptTouchEvent).
-             Pan feito com dois dedos direto no PlantaCanvasView (PanX/PanY), sem competir com o
-             desenho de um dedo só — ver comentário em PlantaCanvasView.OnTouch. -->
+             Pan é um modo explícito (botão ✋ na barra acima): só nesse modo arrastar move a
+             visualização — desligado, o toque desenha normalmente. Nunca os dois ao mesmo tempo. -->
         <Grid Grid.Row="2">
 
             <views:PlantaCanvasView

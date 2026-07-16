@@ -97,8 +97,36 @@ public partial class CamadaEdicaoPage : ContentPage
     private void OnAlternarModoTextoClicked(object? sender, EventArgs e)
     {
         Canvas.ModoTexto = !Canvas.ModoTexto;
-        BotaoTexto.BackgroundColor = Canvas.ModoTexto ? Color.FromArgb("#333") : Colors.Transparent;
-        BotaoTexto.TextColor = Canvas.ModoTexto ? Colors.White : Color.FromArgb("#333");
+        AtualizarDestaqueBotao(BotaoTexto, Canvas.ModoTexto);
+
+        // Texto e pan são mutuamente exclusivos com o desenho — ligar um desliga o outro, senão os
+        // dois "modos especiais" ficam competindo pelo mesmo toque.
+        if (Canvas.ModoTexto && Canvas.ModoPan)
+        {
+            Canvas.ModoPan = false;
+            AtualizarDestaqueBotao(BotaoPan, false);
+        }
+    }
+
+    /// <summary>Alterna o "modo pan": enquanto ligado, arrastar o dedo move a visualização
+    /// (Canvas.PanX/PanY) em vez de desenhar — separa por completo o gesto de ajustar zoom/posição do
+    /// gesto de desenhar, sem depender de heurística de "quantos dedos" nem de ScrollView.</summary>
+    private void OnAlternarModoPanClicked(object? sender, EventArgs e)
+    {
+        Canvas.ModoPan = !Canvas.ModoPan;
+        AtualizarDestaqueBotao(BotaoPan, Canvas.ModoPan);
+
+        if (Canvas.ModoPan && Canvas.ModoTexto)
+        {
+            Canvas.ModoTexto = false;
+            AtualizarDestaqueBotao(BotaoTexto, false);
+        }
+    }
+
+    private static void AtualizarDestaqueBotao(Button botao, bool ativo)
+    {
+        botao.BackgroundColor = ativo ? Color.FromArgb("#333") : Colors.Transparent;
+        botao.TextColor = ativo ? Colors.White : Color.FromArgb("#333");
     }
 
     private async void OnCanvasSolicitarTexto(object? sender, SKPoint ponto)
@@ -108,8 +136,7 @@ public partial class CamadaEdicaoPage : ContentPage
         // Sai do modo texto depois de um toque, mesmo se cancelar — evita o usuário ficar "preso"
         // sem conseguir voltar a desenhar sem notar que o modo continua ligado.
         Canvas.ModoTexto = false;
-        BotaoTexto.BackgroundColor = Colors.Transparent;
-        BotaoTexto.TextColor = Color.FromArgb("#333");
+        AtualizarDestaqueBotao(BotaoTexto, false);
 
         if (string.IsNullOrWhiteSpace(texto))
             return;

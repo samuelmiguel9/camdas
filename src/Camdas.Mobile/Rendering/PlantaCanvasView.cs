@@ -12,7 +12,8 @@ namespace Camdas.Mobile.Views;
 /// visível + as linhas de cota (a lógica de "o que desenhar" vive em
 /// <see cref="PlantaOverlayRenderer"/>, Camdas.Mobile.Core, testável sem Android). Esta classe
 /// adiciona o que só pode viver aqui: o ciclo de vida do <see cref="SKCanvasView"/>, o toque
-/// (rabiscar/escrever na camada ativa) e zoom/pan.
+/// (rabiscar/escrever na camada ativa) e zoom/pan — desenho e pan nunca competem pelo mesmo toque,
+/// só um dos dois fica ativo por vez (<see cref="ModoPan"/>).
 ///
 /// Quando <see cref="UsarResolucaoNativa"/> é true (PlantaPage e CamadaEdicaoPage), o bitmap de cada
 /// camada é criado no tamanho nativo da imagem base — não no tamanho da tela do aparelho — então o
@@ -108,8 +109,8 @@ public sealed class PlantaCanvasView : SKCanvasView
 
     /// <summary>Deslocamento visual (pixels de tela) aplicado antes do <see cref="Zoom"/> — permite
     /// "arrastar" a planta quando o zoom deixa o conteúdo maior que a tela, sem precisar de um
-    /// ScrollView ao redor do canvas (que competia com o gesto de desenhar). Ver <see cref="OnTouch"/>:
-    /// arrastar com dois dedos move o Pan; um dedo só continua desenhando normalmente.</summary>
+    /// ScrollView ao redor do canvas (que competia com o gesto de desenhar). Só é alterado enquanto
+    /// <see cref="ModoPan"/> está ligado — ver comentário lá.</summary>
     public static readonly BindableProperty PanXProperty = BindableProperty.Create(
         nameof(PanX), typeof(float), typeof(PlantaCanvasView),
         defaultValue: 0f,
@@ -120,13 +121,16 @@ public sealed class PlantaCanvasView : SKCanvasView
         defaultValue: 0f,
         propertyChanged: (bindable, _, _) => ((PlantaCanvasView)bindable).InvalidateSurface());
 
+    /// <summary>Quando true, arrastar o dedo move a visualização (PanX/PanY) em vez de desenhar — modo
+    /// explícito, ligado/desligado por um ícone na barra de ferramentas (ver CamadaEdicaoPage), pra não
+    /// competir com o gesto de desenho: só um dos dois funciona por vez, nunca os dois ao mesmo toque.</summary>
+    public static readonly BindableProperty ModoPanProperty = BindableProperty.Create(
+        nameof(ModoPan), typeof(bool), typeof(PlantaCanvasView), defaultValue: false);
+
     private SKBitmap? _imagemBaseEscalada;
     private SKSizeI _tamanhoImagemBaseEscalada;
     private SKPoint? _ultimoPontoToque;
-
-    /// <summary>Posição (tela) de cada dedo atualmente na tela, por Id do ponteiro — usado só pra
-    /// detectar "dois dedos" (arrastar a visualização) versus "um dedo" (desenhar).</summary>
-    private readonly Dictionary<long, SKPoint> _dedosAtivos = [];
+    private SKPoint? _ultimoPontoPan;
 
     public event EventHandler? DesenhoAlterado;
 
@@ -209,6 +213,12 @@ public sealed class PlantaCanvasView : SKCanvasView
     {
         get => (float)GetValue(PanYProperty);
         set => SetValue(PanYProperty, value);
+    }
+
+    public bool ModoPan
+    {
+        get => (bool)GetValue(ModoPanProperty);
+        set => SetValue(ModoPanProperty, value);
     }
 
     /// <summary>
@@ -385,13 +395,15 @@ public sealed class PlantaCanvasView : SKCanvasView
         if (e.ActionType is not (SKTouchAction.Pressed or SKTouchAction.Moved or SKTouchAction.Released or SKTouchAction.Cancelled))
             return;
 
-        // Sem ScrollView ao redor do canvas (competia com o próprio gesto de desenhar — ver
-        // PlantaCanvasView.OnTouch antigo/RELATORIO.md), então o pan é feito aqui: dois dedos
-        // arrastam a visualização (PanX/PanY), um dedo só continua desenhando normalmente. Só faz
-        // sentido com zoom (UsarResolucaoNativa) — nas telas só-leitura (PlantaPage) o toque nem
-        // chega a ser tratado abaixo por falta de CamadaAtivaId.
-        if (UsarResolucaoNativa && GerenciarPanMultitoque(e))
+        // Modo pan explícito (ícone na barra de ferramentas, ver CamadaEdicaoPage) — separado do
+        // desenho de propósito: sem ScrollView ao redor do canvas (competia com o próprio gesto de
+        // desenhar), arrastar só move a visualização quando esse modo está ligado; nunca ao mesmo
+        // tempo que o lápis desenha.
+        if (ModoPan)
+        {
+            GerenciarPan(e);
             return;
+        }
 
         if (e.ActionType == SKTouchAction.Cancelled)
             return;
@@ -467,66 +479,27 @@ public sealed class PlantaCanvasView : SKCanvasView
         InvalidateSurface();
     }
 
-    /// <summary>
-    /// Rastreia quantos dedos estão na tela por Id de ponteiro. Com dois (ou mais) dedos, o gesto
-    /// vira "arrastar a visualização" (soma o deslocamento a PanX/PanY) em vez de desenhar — cancela
-    /// qualquer traço em andamento do primeiro dedo assim que o segundo toca a tela, pra não misturar
-    /// os dois gestos. Retorna true quando o evento já foi tratado como pan (não deve mais cair no
-    /// desenho normal).
-    /// </summary>
-    /// <remarks>
-    /// Limitação conhecida: como o primeiro dedo já desenha um ponto imediatamente ao tocar (feedback
-    /// visual instantâneo do toque), se o segundo dedo pousar logo em seguida pra iniciar um pan, esse
-    /// ponto inicial já ficou marcado na camada — um traço curto e solto no início do gesto de pan.
-    /// Aceitável na prática (o toque inicial do pan tende a ser rápido e discreto).
-    /// </remarks>
-    private bool GerenciarPanMultitoque(SKTouchEventArgs e)
+    /// <summary>Com <see cref="ModoPan"/> ligado, qualquer arrasto de um dedo só move a visualização
+    /// (PanX/PanY) — não desenha nada, o lápis fica desativado enquanto esse modo está ligado.</summary>
+    private void GerenciarPan(SKTouchEventArgs e)
     {
         switch (e.ActionType)
         {
             case SKTouchAction.Pressed:
-                _dedosAtivos[e.Id] = e.Location;
-                if (_dedosAtivos.Count < 2)
-                    return false;
-
-                _tracoEmAndamento = null;
-                _ultimoPontoToque = null;
-                e.Handled = true;
-                return true;
-
-            case SKTouchAction.Moved:
-                if (!_dedosAtivos.ContainsKey(e.Id))
-                    return false;
-
-                if (_dedosAtivos.Count < 2)
-                {
-                    _dedosAtivos[e.Id] = e.Location;
-                    return false;
-                }
-
-                var anterior = _dedosAtivos[e.Id];
-                PanX += e.Location.X - anterior.X;
-                PanY += e.Location.Y - anterior.Y;
-                _dedosAtivos[e.Id] = e.Location;
-                e.Handled = true;
-                InvalidateSurface();
-                return true;
-
+                _ultimoPontoPan = e.Location;
+                break;
+            case SKTouchAction.Moved when _ultimoPontoPan is { } ultimo:
+                PanX += e.Location.X - ultimo.X;
+                PanY += e.Location.Y - ultimo.Y;
+                _ultimoPontoPan = e.Location;
+                break;
             case SKTouchAction.Released:
             case SKTouchAction.Cancelled:
-                _dedosAtivos.Remove(e.Id);
-                // Ainda tem outro dedo na tela (soltou um dos dois durante o pan) — trata como
-                // "tratado" pra o dedo restante não disparar um traço novo sem um Pressed próprio.
-                if (_dedosAtivos.Count >= 1)
-                {
-                    e.Handled = true;
-                    return true;
-                }
-                return false;
-
-            default:
-                return false;
+                _ultimoPontoPan = null;
+                break;
         }
+
+        e.Handled = true;
     }
 
     private SKBitmap ObterOuCriarBitmapDaCamada(Guid camadaId)
