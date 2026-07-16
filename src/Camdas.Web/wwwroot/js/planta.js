@@ -19,6 +19,11 @@ window.camdasInterop = {
 
         el.addEventListener('pointerdown', function (e) {
             if (e.button !== 0 && e.pointerType === 'mouse') return;
+            // Sem isto, arrastar com o mouse inicia a seleção de texto/imagem nativa do navegador em
+            // vez de só rolar — funcionava "às vezes" mas ficava impossível de usar assim que havia
+            // conteúdo pra selecionar em volta do canvas (bug reportado: "não consigo arrastar após o
+            // zoom", quando o canvas passa a ser maior que a área visível).
+            e.preventDefault();
             arrastando = true;
             ultimoX = e.clientX;
             ultimoY = e.clientY;
@@ -28,6 +33,7 @@ window.camdasInterop = {
 
         el.addEventListener('pointermove', function (e) {
             if (!arrastando) return;
+            e.preventDefault();
             el.scrollLeft -= (e.clientX - ultimoX);
             el.scrollTop -= (e.clientY - ultimoY);
             ultimoX = e.clientX;
