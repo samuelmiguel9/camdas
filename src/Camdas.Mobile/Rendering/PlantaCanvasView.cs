@@ -316,6 +316,11 @@ public sealed class PlantaCanvasView : SKCanvasView
         switch (e.ActionType)
         {
             case SKTouchAction.Pressed:
+                // O canvas normalmente fica dentro de um ScrollView (zoom/pan — ver
+                // CamadaEdicaoPage/PlantaPage). Sem isto, o Android entende um arrasto do dedo como
+                // gesto de rolagem do ScrollView pai a partir do primeiro Moved, e o traço trava no
+                // ponto inicial. Pedimos ao pai pra não interceptar até soltar o dedo.
+                (Handler?.PlatformView as Android.Views.View)?.Parent?.RequestDisallowInterceptTouchEvent(true);
                 canvasBitmap.DrawCircle(ponto, EspessuraTraco / 2, paint);
                 _ultimoPontoToque = ponto;
                 _tracoEmAndamento = new Traco([ponto], CorTraco, EspessuraTraco, ModoApagar);
@@ -326,6 +331,7 @@ public sealed class PlantaCanvasView : SKCanvasView
                 _tracoEmAndamento?.Pontos.Add(ponto);
                 break;
             case SKTouchAction.Released:
+                (Handler?.PlatformView as Android.Views.View)?.Parent?.RequestDisallowInterceptTouchEvent(false);
                 _ultimoPontoToque = null;
                 if (_tracoEmAndamento is not null)
                 {
