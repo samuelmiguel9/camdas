@@ -4,6 +4,7 @@ FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 WORKDIR /src
 
 COPY Camdas.sln .
+COPY VERSION .
 COPY src/Camdas.Domain/Camdas.Domain.csproj src/Camdas.Domain/
 COPY src/Camdas.Contracts/Camdas.Contracts.csproj src/Camdas.Contracts/
 COPY src/Camdas.Application/Camdas.Application.csproj src/Camdas.Application/
