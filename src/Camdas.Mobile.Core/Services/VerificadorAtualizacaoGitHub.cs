@@ -13,11 +13,19 @@ public sealed class VerificadorAtualizacaoGitHub(HttpClient httpClient) : IVerif
     private const string Repositorio = "samuelmiguel9/camdas";
 
     /// <summary>
-    /// Precisa ser atualizada junto com a tag do release e com `ApplicationDisplayVersion` no
-    /// Camdas.Mobile.csproj a cada publicação — não há uma fonte única automática porque a tag do
-    /// GitHub Release é decidida na hora de publicar, não no build.
+    /// Lida do arquivo VERSION (raiz do repo), embutido como recurso no build — mesma fonte usada
+    /// pelo `ApplicationDisplayVersion` no Camdas.Mobile.csproj e pelo endpoint `/version` da Api.
+    /// A tag do GitHub Release ainda precisa ser criada manualmente igual a este valor (`v` +
+    /// conteúdo do VERSION) na hora de publicar, já que isso não depende do build.
     /// </summary>
-    public const string VersaoAtual = "v1.5.0";
+    public static readonly string VersaoAtual = "v" + LerVersao();
+
+    private static string LerVersao()
+    {
+        using var stream = typeof(VerificadorAtualizacaoGitHub).Assembly.GetManifestResourceStream("VERSION");
+        using var leitor = new StreamReader(stream!);
+        return leitor.ReadToEnd().Trim();
+    }
 
     public async Task<AtualizacaoDisponivel?> VerificarAsync(CancellationToken ct = default)
     {

@@ -196,6 +196,16 @@ using (var escopo = app.Services.CreateScope())
 // o servidor está acessível antes de tentar autenticar — ver ResolvedorEnderecoApi.
 app.MapGet("/health", () => Results.Ok());
 
+// Lê o mesmo arquivo VERSION (raiz do repo) embutido como recurso — mesma fonte usada pelo
+// ApplicationDisplayVersion do Camdas.Mobile.csproj e pelo VerificadorAtualizacaoGitHub do app,
+// para a Api implantada e o Apk lançado sempre poderem ser comparados.
+app.MapGet("/version", () =>
+{
+    using var stream = System.Reflection.Assembly.GetExecutingAssembly().GetManifestResourceStream("VERSION");
+    using var leitor = new StreamReader(stream!);
+    return Results.Ok(new { versao = leitor.ReadToEnd().Trim() });
+});
+
 app.UseSerilogRequestLogging();
 
 app.UseExceptionHandler();

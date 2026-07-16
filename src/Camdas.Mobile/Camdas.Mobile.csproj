@@ -20,7 +20,11 @@
 		<ApplicationId>com.companyname.camdas.mobile</ApplicationId>
 
 		<!-- Versions -->
-		<ApplicationDisplayVersion>1.5.0</ApplicationDisplayVersion>
+		<!-- Lido do arquivo VERSION na raiz do repo (mesma fonte do endpoint /version da Api e do
+		     VerificadorAtualizacaoGitHub) — evita ApplicationDisplayVersion e VersaoAtual divergirem
+		     por esquecimento. ApplicationVersion (versionCode do Android) continua manual: é um
+		     contador do Android, sem relação com o número semântico de versão. -->
+		<ApplicationDisplayVersion>$([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)..\..\VERSION').Trim())</ApplicationDisplayVersion>
 		<ApplicationVersion>4</ApplicationVersion>
 
 		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">21.0</SupportedOSPlatformVersion>

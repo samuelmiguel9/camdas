@@ -26,4 +26,11 @@
     <ProjectReference Include="..\Camdas.Contracts\Camdas.Contracts.csproj" />
   </ItemGroup>
 
+  <!-- Mesmo VERSION lido pelo Camdas.Mobile.csproj (ApplicationDisplayVersion) e pelo
+       Camdas.Mobile.Core (VerificadorAtualizacaoGitHub) — fonte única pra evitar a Api e o Apk
+       divulgarem números de versão divergentes. -->
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\VERSION" LogicalName="VERSION" />
+  </ItemGroup>
+
 </Project>
