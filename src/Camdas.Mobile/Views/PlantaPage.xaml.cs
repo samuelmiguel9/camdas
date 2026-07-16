@@ -133,6 +133,14 @@ public partial class PlantaPage : ContentPage
         await _viewModel.RemoverCamadaAsync(camada);
     }
 
+    /// <summary>Mostra/esconde o painel de camadas — oculto por padrão pra deixar mais espaço pra
+    /// planta; a seta no botão (▲/▼) indica o estado atual.</summary>
+    private void OnAlternarCamadasClicked(object? sender, EventArgs e)
+    {
+        PainelCamadas.IsVisible = !PainelCamadas.IsVisible;
+        BotaoAlternarCamadas.Text = PainelCamadas.IsVisible ? "▼ Camadas" : "▲ Camadas";
+    }
+
     private async void OnAbrirHistoricoClicked(object? sender, EventArgs e) =>
         await Shell.Current.GoToAsync($"{nameof(HistoricoPage)}?plantaId={PlantaId}");
 

@@ -43,7 +43,7 @@ public partial class CamadaEdicaoPage : ContentPage
 
     private void AtualizarZoom(float zoom)
     {
-        if (_viewModel.ImagemBase is not { } imagemBase)
+        if (_viewModel.ImagemBase is null)
             return;
 
         zoom = Math.Clamp(zoom, (float)ZoomSlider.Minimum, (float)ZoomSlider.Maximum);
@@ -55,8 +55,11 @@ public partial class CamadaEdicaoPage : ContentPage
         Canvas.PanY = 0;
         Canvas.UsarResolucaoNativa = true;
         Canvas.Zoom = zoom;
-        Canvas.WidthRequest = imagemBase.Width * zoom;
-        Canvas.HeightRequest = imagemBase.Height * zoom;
+        // Sem ScrollView (removido — competia com o gesto de desenhar), o Canvas fica com tamanho
+        // fixo (preenche a célula do Grid) e o zoom só afeta o Translate/Scale internos do
+        // OnPaintSurface — diferente da tela de visualização (PlantaPage), que ainda tem ScrollView
+        // e por isso pode crescer o WidthRequest/HeightRequest pra rolar. Crescer aqui faria a
+        // planta "vazar" pra fora do layout, já que nada mais contém/corta esse excesso.
         Canvas.AtualizarPreview();
 
         ZoomSlider.Value = zoom;

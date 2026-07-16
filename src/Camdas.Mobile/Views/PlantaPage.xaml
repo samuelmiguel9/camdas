@@ -9,7 +9,7 @@
     x:DataType="vm:PlantaViewModel"
     Title="Planta">
 
-    <Grid Padding="8" RowDefinitions="Auto,Auto,7*,Auto,2*,Auto" RowSpacing="6">
+    <Grid Padding="8" RowDefinitions="Auto,Auto,*,Auto,Auto,Auto" RowSpacing="6">
 
         <Button Grid.Row="0" Text="Histórico" Clicked="OnAbrirHistoricoClicked" HorizontalOptions="Start" />
 
@@ -39,7 +39,9 @@
         </ScrollView>
 
         <HorizontalStackLayout Grid.Row="3" Spacing="8">
-            <Label Text="Camadas" FontAttributes="Bold" VerticalOptions="Center" />
+            <!-- Oculta a lista de camadas por padrão (deixa mais espaço pra planta) — clique mostra/
+                 esconde; a seta indica o estado (▲ mostra, ▼ esconde), igual um "drawer". -->
+            <Button x:Name="BotaoAlternarCamadas" Text="▲ Camadas" FontAttributes="Bold" Clicked="OnAlternarCamadasClicked" />
             <Button Text="+ Nova camada" Clicked="OnNovaCamadaClicked" />
             <Button Text="+ Imagem" Clicked="OnAdicionarImagemClicked" />
             <Button Text="💾 Salvar tudo (PNG)" Clicked="OnSalvarNaGaleriaClicked" />
@@ -48,9 +50,11 @@
         <!-- Painel estilo Photoshop: fundo escuro, olho (visibilidade), miniatura em xadrez (toque
              abre o menu de opções da camada), nome, cadeado (só indicador — o botão foi para o
              menu). A própria linha é arrastável (DragGestureRecognizer/DropGestureRecognizer) pra
-             reordenar soltando sobre outra camada, ou soltando na lixeira ao lado pra excluir —
-             CollectionView rola sozinho quando a lista não cabe na altura disponível (2* da Grid). -->
-        <Grid Grid.Row="4" ColumnDefinitions="*,44" ColumnSpacing="6">
+             reordenar soltando sobre outra camada, ou soltando na lixeira ao lado pra excluir.
+             Oculto por padrão (IsVisible=False) — ver BotaoAlternarCamadas; HeightRequest limita a
+             altura quando aberto, pra não empurrar o canvas pra fora da tela, com scroll próprio. -->
+        <Grid x:Name="PainelCamadas" Grid.Row="4" ColumnDefinitions="*,44" ColumnSpacing="6"
+              HeightRequest="220" IsVisible="False">
             <Border Grid.Column="0" StrokeShape="RoundRectangle 4" Stroke="#1E1E1E" BackgroundColor="#2E2E2E" Padding="0">
                 <CollectionView ItemsSource="{Binding Camadas}" BackgroundColor="Transparent">
                     <CollectionView.ItemTemplate>
