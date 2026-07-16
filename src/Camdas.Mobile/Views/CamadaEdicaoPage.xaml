@@ -23,8 +23,12 @@
             <Label x:Name="ZoomLabel" Text="100%" VerticalOptions="Center" WidthRequest="48" />
         </HorizontalStackLayout>
 
-        <!-- ScrollView permite percorrer a planta quando o zoom deixa o conteúdo maior que a tela. -->
-        <ScrollView Grid.Row="1" Orientation="Both">
+        <!-- Sem ScrollView de propósito: um ScrollView ao redor do canvas competia com o próprio
+             gesto de desenhar (arrastar o dedo virava rolagem do ScrollView pai a partir do primeiro
+             Moved, travando o traço no ponto inicial mesmo com RequestDisallowInterceptTouchEvent).
+             Zoom continua funcionando (Slider/botões), só não dá pra arrastar pra ver o que ficar
+             fora da tela quando o zoom passa do tamanho disponível — reduza o zoom pra enquadrar. -->
+        <Grid Grid.Row="1">
             <views:PlantaCanvasView
                 x:Name="Canvas"
                 Camadas="{Binding Camadas}"
@@ -34,7 +38,7 @@
                 CorTraco="{Binding CorTraco}"
                 EspessuraTraco="{Binding EspessuraTraco}"
                 ModoApagar="{Binding ModoApagar}" />
-        </ScrollView>
+        </Grid>
 
         <VerticalStackLayout Grid.Row="2" Spacing="4">
             <HorizontalStackLayout Spacing="6">
