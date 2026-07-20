@@ -11,10 +11,10 @@ using SkiaSharp;
 namespace Camdas.Mobile.ViewModels;
 
 /// <summary>
-/// Tela principal da planta: mostra a composição de todas as camadas visíveis (só leitura — não
-/// desenha aqui) e gerencia visibilidade/bloqueio/criação/prioridade de camadas. O desenho em si
-/// acontece numa tela isolada por camada (<see cref="CamadaEdicaoViewModel"/>/CamadaEdicaoPage), pra
-/// não misturar o traço de uma camada nova com as demais enquanto ela está sendo criada/editada.
+/// Tela principal da planta: mostra a composição de todas as camadas visíveis e gerencia
+/// visibilidade/bloqueio/criação/prioridade de camadas. O desenho também acontece aqui, sob demanda:
+/// <see cref="ModoEdicao"/> liga as ferramentas e passa a desenhar na <see cref="CamadaAtiva"/>,
+/// mantendo as demais camadas visíveis por baixo (o usuário se guia por elas pra não repetir medida).
 ///
 /// Compartilhada entre Android (mestre) e Web (auxiliar): <paramref name="plataformaEdicao"/> decide,
 /// por tipo de operação, se a edição aplica direto (sempre no Android) ou vira uma
@@ -28,7 +28,13 @@ public partial class PlantaViewModel(IApiClient apiClient, ISalvadorGaleria salv
     private PlantaDto? _planta;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CamadaEmEdicaoId))]
     private CamadaDto? _camadaAtiva;
+
+    /// <summary>Id da camada que o canvas deve tratar como ativa pra desenho — só preenchido em
+    /// <see cref="ModoEdicao"/>. Fora da edição fica null, então tocar na planta na visualização
+    /// normal não risca nada.</summary>
+    public Guid? CamadaEmEdicaoId => ModoEdicao ? CamadaAtiva?.Id : null;
 
     [ObservableProperty]
     private SKBitmap? _imagemBase;
@@ -37,10 +43,34 @@ public partial class PlantaViewModel(IApiClient apiClient, ISalvadorGaleria salv
     [ObservableProperty]
     private CamadaDto? _camadaMenuAberta;
 
-    public ObservableCollection<CamadaDto> Camadas { get; } = [];
+    /// <summary>Quando true, a tela de visualização entra em modo de desenho da <see cref="CamadaAtiva"/>
+    /// (as ferramentas aparecem e o toque desenha) — as demais camadas continuam visíveis por baixo,
+    /// pra o usuário se guiar por elas e evitar medidas redundantes. Ver PlantaPage.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CamadaEmEdicaoId))]
+    private bool _modoEdicao;
 
-    /// <summary>Avisa a Page que o usuário tocou numa camada para abri-la na tela de edição isolada.</summary>
-    public event EventHandler<CamadaDto>? CamadaSelecionadaParaEdicao;
+    [ObservableProperty]
+    private string _corTraco = "#000000";
+
+    [ObservableProperty]
+    private float _espessuraTraco = 3f;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(EspessuraMaxima))]
+    private bool _modoApagar;
+
+    /// <summary>A borracha usa uma escala bem maior que o traço — apagar uma área grande de uma vez
+    /// exige uma espessura muito acima do que faz sentido pra desenhar linhas finas.</summary>
+    public float EspessuraMaxima => ModoApagar ? 120f : 24f;
+
+    partial void OnModoApagarChanged(bool value)
+    {
+        if (EspessuraTraco > EspessuraMaxima)
+            EspessuraTraco = EspessuraMaxima;
+    }
+
+    public ObservableCollection<CamadaDto> Camadas { get; } = [];
 
     /// <summary>
     /// Bitmap raster de cada camada, por Id. A mesma instância de Dictionary é compartilhada com
@@ -155,46 +185,6 @@ public partial class PlantaViewModel(IApiClient apiClient, ISalvadorGaleria salv
     }
 
     /// <summary>
-    /// Cria uma camada nova a partir de uma imagem já pronta (galeria/câmera) em vez de traço
-    /// desenhado à mão — redimensiona pra bater com o tamanho da planta base, senão a imagem
-    /// importada ficaria desalinhada/cortada ao compor com as demais camadas.
-    /// </summary>
-    public async Task AdicionarImagemComoCamadaAsync(string nome, Stream conteudoImagem)
-    {
-        if (Planta is null || ImagemBase is null)
-            return;
-
-        EstaCarregando = true;
-        MensagemErro = null;
-        try
-        {
-            using var bitmapOriginal = SKBitmap.Decode(conteudoImagem);
-            if (bitmapOriginal is null)
-                throw new InvalidOperationException("Não foi possível ler a imagem selecionada.");
-
-            using var bitmapRedimensionado = bitmapOriginal.Resize(
-                new SKImageInfo(ImagemBase.Width, ImagemBase.Height), SKFilterQuality.Medium);
-            using var dados = (bitmapRedimensionado ?? bitmapOriginal).Encode(SKEncodedImageFormat.Png, 100);
-            using var streamPng = dados.AsStream();
-
-            var camada = await apiClient.CriarCamadaAsync(Planta.Id, nome);
-            var camadaComImagem = await apiClient.AtualizarImagemCamadaAsync(Planta.Id, camada.Id, streamPng);
-
-            Camadas.Add(camadaComImagem);
-            CamadaAtiva = camadaComImagem;
-            ImagensPorCamada[camadaComImagem.Id] = SKBitmap.Decode(await apiClient.ObterImagemCamadaAsync(Planta.Id, camadaComImagem.Id));
-        }
-        catch (Exception ex)
-        {
-            MensagemErro = $"Não foi possível adicionar a imagem como camada: {ex.Message}";
-        }
-        finally
-        {
-            EstaCarregando = false;
-        }
-    }
-
-    /// <summary>
     /// Move a camada arrastada (<paramref name="origem"/>) pra posição da camada onde ela foi solta
     /// (<paramref name="destino"/>) e persiste a nova ordem no servidor, que devolve a lista já
     /// renumerada em ordem crescente.
@@ -245,10 +235,47 @@ public partial class PlantaViewModel(IApiClient apiClient, ISalvadorGaleria salv
     private void FecharMenuCamada() => CamadaMenuAberta = null;
 
     [RelayCommand]
-    private void SelecionarCamada(CamadaDto camada)
+    private void SelecionarCamada(CamadaDto camada) => EditarCamada(camada);
+
+    /// <summary>Entra no modo de edição inline da camada indicada — desenho acontece na própria tela
+    /// de visualização, com as demais camadas visíveis por baixo (evita medida redundante).</summary>
+    public void EditarCamada(CamadaDto camada)
     {
         CamadaAtiva = camada;
-        CamadaSelecionadaParaEdicao?.Invoke(this, camada);
+        ModoApagar = false;
+        CamadaMenuAberta = null;
+        ModoEdicao = true;
+    }
+
+    public void SairDaEdicao() => ModoEdicao = false;
+
+    /// <summary>Salva o traço da camada ativa no servidor. Encode direto do SKBitmap (não via
+    /// SKImage.FromBitmap) — ver comentário em <see cref="SalvarComposicaoNaGaleriaAsync"/> sobre o
+    /// crash nativo. Retorna false se nada foi desenhado ainda (bitmap inexistente).</summary>
+    public async Task<bool> SalvarCamadaAtivaAsync()
+    {
+        if (Planta is null || CamadaAtiva is not { } camada || !ImagensPorCamada.TryGetValue(camada.Id, out var bitmap))
+            return false;
+
+        EstaCarregando = true;
+        MensagemErro = null;
+        try
+        {
+            using var dados = bitmap.Encode(SKEncodedImageFormat.Png, 100);
+            using var stream = dados.AsStream();
+            var atualizada = await apiClient.AtualizarImagemCamadaAsync(Planta.Id, camada.Id, stream);
+            SubstituirCamada(atualizada);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            MensagemErro = $"Não foi possível salvar a camada: {ex.Message}";
+            return false;
+        }
+        finally
+        {
+            EstaCarregando = false;
+        }
     }
 
     [RelayCommand]

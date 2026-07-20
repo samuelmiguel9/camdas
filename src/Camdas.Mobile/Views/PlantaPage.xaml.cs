@@ -1,5 +1,7 @@
+using System.ComponentModel;
 using Camdas.Mobile.ViewModels;
 using Camdas.Contracts;
+using SkiaSharp;
 
 namespace Camdas.Mobile.Views;
 
@@ -17,8 +19,97 @@ public partial class PlantaPage : ContentPage
         InitializeComponent();
         _viewModel = viewModel;
         BindingContext = viewModel;
-        viewModel.CamadaSelecionadaParaEdicao += async (_, camada) =>
-            await Shell.Current.GoToAsync($"{nameof(CamadaEdicaoPage)}?plantaId={PlantaId}&camadaId={camada.Id}");
+
+        // Entrar/sair do modo de edição (ex.: tocar numa camada dispara SelecionarCamadaCommand no
+        // XAML, sem passar pelo code-behind) precisa reconfigurar a UI de desenho — reagimos aqui.
+        _viewModel.PropertyChanged += OnViewModelPropertyChanged;
+        Canvas.SolicitarTexto += OnCanvasSolicitarTexto;
+
+        // Ao entrar na edição, a barra de ferramentas aparece e o Grid só termina de redistribuir as
+        // linhas (e portanto o tamanho real do ScrollView) depois do PropertyChanged já ter disparado
+        // — reaplica o tamanho do canvas quando o layout do ScrollView de fato mudar.
+        PlantaScroll.SizeChanged += (_, _) =>
+        {
+            if (_viewModel.ModoEdicao)
+                AjustarCanvasParaViewport();
+        };
+
+        // Listener nativo Android na lixeira (ver LixeiraDragListener): recebe os eventos reais de
+        // entrada/saída do arrasto (o DropGestureRecognizer do MAUI não expõe isso no Android, só
+        // Drop) — acende/apaga exatamente quando a camada arrastada está sobre a lixeira.
+        BordaLixeira.HandlerChanged += (_, _) =>
+        {
+            if (BordaLixeira.Handler?.PlatformView is Android.Views.View view)
+                view.SetOnDragListener(new LixeiraDragListener(
+                    acender: () => AcenderLixeira(true),
+                    apagar: () => AcenderLixeira(false),
+                    obterCamadaArrastada: () => _camadaArrastada,
+                    excluir: ExcluirCamadaArrastadaAsync));
+        };
+    }
+
+    /// <summary>Recebe os eventos nativos de drag-and-drop do Android na lixeira. O
+    /// DropGestureRecognizer do MAUI só expõe "Drop" (sem posição durante o arrasto) — usamos o
+    /// listener nativo diretamente pra saber quando a camada está de fato sobre a lixeira
+    /// (ActionDragEntered/Exited), sem depender do payload transferido pelo drag (não usamos
+    /// DragEvent.ClipData; a camada arrastada já é rastreada em _camadaArrastada).</summary>
+    private sealed class LixeiraDragListener(
+        Action acender, Action apagar, Func<CamadaDto?> obterCamadaArrastada, Func<CamadaDto, Task> excluir)
+        : Java.Lang.Object, Android.Views.View.IOnDragListener
+    {
+        public bool OnDrag(Android.Views.View? v, Android.Views.DragEvent? e)
+        {
+            switch (e?.Action)
+            {
+                case Android.Views.DragAction.Entered:
+                    acender();
+                    return true;
+                case Android.Views.DragAction.Exited:
+                case Android.Views.DragAction.Ended:
+                    apagar();
+                    return true;
+                case Android.Views.DragAction.Drop:
+                    apagar();
+                    if (obterCamadaArrastada() is { } camada)
+                        _ = excluir(camada);
+                    return true;
+                default:
+                    // Started/Location: aceita participar do drag em andamento, sem ação própria.
+                    return true;
+            }
+        }
+    }
+
+    private async Task ExcluirCamadaArrastadaAsync(CamadaDto camada)
+    {
+        _camadaArrastada = null;
+        var confirmar = await DisplayAlert(
+            "Excluir camada", $"Excluir a camada '{camada.Nome}'? O traço dela some, sem volta.", "Excluir", "Cancelar");
+        if (!confirmar)
+            return;
+
+        await _viewModel.RemoverCamadaAsync(camada);
+    }
+
+    private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(PlantaViewModel.ModoEdicao))
+            AplicarModoEdicaoUi();
+    }
+
+    /// <summary>Reconfigura a tela ao alternar edição/visualização: desliga os sub-modos (texto/pan/
+    /// borracha), troca a rolagem do ScrollView (desenhar dentro dele viraria rolagem) e reaplica o
+    /// zoom no layout correspondente (inflar+rolar na visualização; transform interno na edição).</summary>
+    private void AplicarModoEdicaoUi()
+    {
+        Canvas.ModoTexto = false;
+        Canvas.ModoPan = false;
+        AtualizarDestaqueBotao(BotaoTexto, false);
+        AtualizarDestaqueBotao(BotaoPan, false);
+        AtualizarDestaqueBorracha(false);
+
+        PlantaScroll.Orientation = _viewModel.ModoEdicao ? ScrollOrientation.Neither : ScrollOrientation.Both;
+        AtualizarZoom(Canvas.Zoom <= 0 ? 1f : Canvas.Zoom);
     }
 
     protected override async void OnAppearing()
@@ -60,18 +151,48 @@ public partial class PlantaPage : ContentPage
         return (float)Math.Min(porBytes, porDimensao);
     }
 
+    /// <summary>Dá ao canvas o tamanho da área visível do ScrollView (o SKCanvasView não tem tamanho
+    /// próprio quando hospedado num ScrollView — sem isto ele colapsa pra 0 e a planta não aparece).
+    /// Chamado ao entrar na edição e sempre que o ScrollView mudar de tamanho (a barra de ferramentas
+    /// aparecendo/sumindo redistribui as linhas do Grid).</summary>
+    private void AjustarCanvasParaViewport()
+    {
+        if (PlantaScroll.Width > 0)
+            Canvas.WidthRequest = PlantaScroll.Width;
+        if (PlantaScroll.Height > 0)
+            Canvas.HeightRequest = PlantaScroll.Height;
+    }
+
     private void AtualizarZoom(float zoom)
     {
         if (_viewModel.ImagemBase is not { } imagemBase)
             return;
 
-        var zoomMaximo = Math.Min((float)ZoomSlider.Maximum, ZoomMaximoSeguro(imagemBase.Width, imagemBase.Height));
-        zoom = Math.Clamp(zoom, (float)ZoomSlider.Minimum, zoomMaximo);
-
         Canvas.UsarResolucaoNativa = true;
+
+        if (_viewModel.ModoEdicao)
+        {
+            // Edição: canvas do tamanho da área visível (o zoom só afeta o Scale/Translate internos do
+            // OnPaintSurface — igual à antiga tela isolada). Um SKCanvasView dentro do ScrollView não
+            // tem tamanho próprio; sem fixar o tamanho da viewport ele colapsa pra 0 e a planta some.
+            // Sem inflar, a superfície nunca estoura o limite do Android, então o zoom vai até o máximo
+            // do slider; o deslocamento é pelo modo pan (✋), já que a rolagem do ScrollView fica off.
+            zoom = Math.Clamp(zoom, (float)ZoomSlider.Minimum, (float)ZoomSlider.Maximum);
+            AjustarCanvasParaViewport();
+            Canvas.PanX = 0;
+            Canvas.PanY = 0;
+        }
+        else
+        {
+            // Visualização: infla o canvas (imagem×zoom) pra rolar dentro do ScrollView. Limita o zoom
+            // pra a superfície não passar do teto do Android (ver ZoomMaximoSeguro).
+            var zoomMaximo = Math.Min((float)ZoomSlider.Maximum, ZoomMaximoSeguro(imagemBase.Width, imagemBase.Height));
+            zoom = Math.Clamp(zoom, (float)ZoomSlider.Minimum, zoomMaximo);
+            Canvas.WidthRequest = imagemBase.Width * zoom;
+            Canvas.HeightRequest = imagemBase.Height * zoom;
+        }
+
         Canvas.Zoom = zoom;
-        Canvas.WidthRequest = imagemBase.Width * zoom;
-        Canvas.HeightRequest = imagemBase.Height * zoom;
         Canvas.AtualizarPreview();
 
         ZoomSlider.Value = zoom;
@@ -118,12 +239,23 @@ public partial class PlantaPage : ContentPage
         await _viewModel.DefinirOpacidadeAsync(camada, slider.Value);
     }
 
-    /// <summary>Guarda a camada da linha que começou a ser arrastada (a recognizer herda o
-    /// BindingContext do item da CollectionView, igual ao slider de opacidade acima).</summary>
+    /// <summary>Guarda a camada da linha que começou a ser arrastada — a recognizer herda o
+    /// BindingContext do item da CollectionView, igual ao slider de opacidade acima. Acender/apagar a
+    /// lixeira agora é feito pelo listener nativo (ver LixeiraDragListener), que sabe a posição real.</summary>
     private void OnCamadaDragStarting(object? sender, DragStartingEventArgs e)
     {
         if (sender is DragGestureRecognizer { BindingContext: CamadaDto camada })
             _camadaArrastada = camada;
+    }
+
+    /// <summary>Rede de segurança: se o arrasto terminar sem nenhum evento nativo da lixeira ter
+    /// disparado (ex.: solto fora de qualquer alvo), garante que ela não fique acesa.</summary>
+    private void OnCamadaDropCompleted(object? sender, DropCompletedEventArgs e) => AcenderLixeira(false);
+
+    private void AcenderLixeira(bool acesa)
+    {
+        BordaLixeira.BackgroundColor = acesa ? Color.FromArgb("#5A2E2E") : Color.FromArgb("#3A2323");
+        BordaLixeira.Stroke = acesa ? Color.FromArgb("#E74C3C") : Color.FromArgb("#1E1E1E");
     }
 
     /// <summary>Soltar uma camada sobre outra move a arrastada pra posição da camada de destino.</summary>
@@ -135,23 +267,6 @@ public partial class PlantaPage : ContentPage
             return;
 
         await _viewModel.ReordenarArrastandoAsync(origem, destino);
-    }
-
-    /// <summary>Soltar uma camada na lixeira ao lado da lista exclui ela (com confirmação, mesmo
-    /// texto do botão "Excluir camada" do menu de opções).</summary>
-    private async void OnCamadaDropNaLixeira(object? sender, DropEventArgs e)
-    {
-        var camada = _camadaArrastada;
-        _camadaArrastada = null;
-        if (camada is null)
-            return;
-
-        var confirmar = await DisplayAlert(
-            "Excluir camada", $"Excluir a camada '{camada.Nome}'? O traço dela some, sem volta.", "Excluir", "Cancelar");
-        if (!confirmar)
-            return;
-
-        await _viewModel.RemoverCamadaAsync(camada);
     }
 
     /// <summary>Mostra/esconde o painel de camadas — oculto por padrão pra deixar mais espaço pra
@@ -176,45 +291,11 @@ public partial class PlantaPage : ContentPage
 
         await _viewModel.CriarCamadaAsync(nome);
 
-        // Criada, entra direto na edição isolada dela (sem as outras camadas aparecendo).
-        var camadaCriada = _viewModel.CamadaAtiva;
-        if (camadaCriada is not null)
-            await Shell.Current.GoToAsync($"{nameof(CamadaEdicaoPage)}?plantaId={PlantaId}&camadaId={camadaCriada.Id}");
-    }
-
-    /// <summary>Cria uma camada nova a partir de uma foto/imagem (galeria ou câmera), em vez de
-    /// desenhar à mão — ver PlantaViewModel.AdicionarImagemComoCamadaAsync.</summary>
-    private async void OnAdicionarImagemClicked(object? sender, EventArgs e)
-    {
-        var origem = await DisplayActionSheet("Adicionar imagem — de onde?", "Cancelar", null, "Câmera", "Galeria");
-        if (origem is null || origem == "Cancelar")
-            return;
-
-        FileResult? arquivo = origem == "Câmera"
-            ? await CapturarFotoAsync()
-            : await MediaPicker.Default.PickPhotoAsync();
-
-        if (arquivo is null)
-            return;
-
-        var nome = await DisplayPromptAsync("Nova camada", "Nome da camada", initialValue: "Imagem");
-        if (string.IsNullOrWhiteSpace(nome))
-            return;
-
-        using var conteudo = await arquivo.OpenReadAsync();
-        await _viewModel.AdicionarImagemComoCamadaAsync(nome, conteudo);
-        Canvas.AtualizarPreview();
-    }
-
-    private async Task<FileResult?> CapturarFotoAsync()
-    {
-        if (!MediaPicker.Default.IsCaptureSupported)
-        {
-            await DisplayAlert("Câmera", "Este aparelho não tem câmera disponível.", "OK");
-            return null;
-        }
-
-        return await MediaPicker.Default.CapturePhotoAsync();
+        // Criada, entra direto na edição inline dela — na própria tela de visualização, com as outras
+        // camadas visíveis por baixo (o objetivo desta mudança: desenhar a nova medida se guiando
+        // pelas existentes, sem abrir outra aba e sem repetir cota).
+        if (_viewModel.CamadaAtiva is { } camadaCriada)
+            _viewModel.EditarCamada(camadaCriada);
     }
 
     /// <summary>Em Android 9 (API 28) ou anterior é preciso pedir a permissão de escrita em tempo de
@@ -233,5 +314,128 @@ public partial class PlantaPage : ContentPage
 
         if (_viewModel.MensagemErro is null)
             await DisplayAlert("Salvar na galeria", "Planta salva na galeria (Pictures/Camdas).", "OK");
+    }
+
+    // --- Ferramentas de desenho (modo de edição inline) ---
+
+    private void OnCorClicked(object? sender, EventArgs e)
+    {
+        if (sender is Button { CommandParameter: string cor })
+            _viewModel.CorTraco = cor;
+    }
+
+    private void OnLimparClicked(object? sender, EventArgs e) => Canvas.LimparCamadaAtiva();
+
+    private void OnDesfazerClicked(object? sender, EventArgs e) => Canvas.DesfazerUltimaAcao();
+
+    private void OnRefazerClicked(object? sender, EventArgs e) => Canvas.RefazerAcao();
+
+    /// <summary>Salva o traço da camada ativa e volta pra visualização. Se o salvamento falhar,
+    /// mantém na edição pra tentar de novo (não perde o desenho).</summary>
+    private async void OnConcluirEdicaoClicked(object? sender, EventArgs e)
+    {
+        await _viewModel.SalvarCamadaAtivaAsync();
+        if (_viewModel.MensagemErro is not null)
+        {
+            await DisplayAlert("Salvar camada", _viewModel.MensagemErro, "OK");
+            return;
+        }
+
+        _viewModel.SairDaEdicao();
+    }
+
+    /// <summary>Alterna o "modo texto": tocar no canvas dispara <see cref="PlantaCanvasView.SolicitarTexto"/>
+    /// em vez de desenhar; o botão fica destacado enquanto ativo.</summary>
+    private void OnAlternarModoTextoClicked(object? sender, EventArgs e)
+    {
+        Canvas.ModoTexto = !Canvas.ModoTexto;
+        AtualizarDestaqueBotao(BotaoTexto, Canvas.ModoTexto);
+
+        if (Canvas.ModoTexto && Canvas.ModoPan)
+        {
+            Canvas.ModoPan = false;
+            AtualizarDestaqueBotao(BotaoPan, false);
+        }
+    }
+
+    /// <summary>Alterna o "modo pan": arrastar move a visualização (Canvas.PanX/PanY) em vez de
+    /// desenhar — necessário aqui porque a rolagem do ScrollView fica desligada durante a edição.</summary>
+    private void OnAlternarModoPanClicked(object? sender, EventArgs e)
+    {
+        Canvas.ModoPan = !Canvas.ModoPan;
+        AtualizarDestaqueBotao(BotaoPan, Canvas.ModoPan);
+
+        if (Canvas.ModoPan && Canvas.ModoTexto)
+        {
+            Canvas.ModoTexto = false;
+            AtualizarDestaqueBotao(BotaoTexto, false);
+        }
+    }
+
+    /// <summary>Alterna a borracha (apaga em vez de pintar). Como ela desenha, desliga texto/pan pra
+    /// não competirem pelo toque.</summary>
+    private void OnAlternarBorrachaClicked(object? sender, EventArgs e)
+    {
+        _viewModel.ModoApagar = !_viewModel.ModoApagar;
+        AtualizarDestaqueBorracha(_viewModel.ModoApagar);
+
+        if (_viewModel.ModoApagar)
+        {
+            Canvas.ModoTexto = false;
+            Canvas.ModoPan = false;
+            AtualizarDestaqueBotao(BotaoTexto, false);
+            AtualizarDestaqueBotao(BotaoPan, false);
+        }
+    }
+
+    private static void AtualizarDestaqueBotao(Button botao, bool ativo)
+    {
+        botao.BackgroundColor = ativo ? Color.FromArgb("#333") : Colors.Transparent;
+        botao.TextColor = ativo ? Colors.White : Color.FromArgb("#333");
+    }
+
+    private void AtualizarDestaqueBorracha(bool ativo) =>
+        BotaoBorracha.BackgroundColor = ativo ? Color.FromArgb("#333") : Colors.Transparent;
+
+    /// <summary>Toque em modo texto: o texto aparece "solto" (movível) no ponto tocado — só vira
+    /// traço definitivo na camada quando o usuário tocar em "✓ Confirmar" na barra de posicionamento
+    /// (ver <see cref="OnConfirmarElementoPendenteClicked"/>). Pra mover/redimensionar depois de
+    /// aplicado, é preciso apagar e adicionar de novo — ver decisão registrada na conversa.</summary>
+    private async void OnCanvasSolicitarTexto(object? sender, SKPoint ponto)
+    {
+        var texto = await DisplayPromptAsync("Adicionar texto", "Escreva o texto:");
+
+        Canvas.ModoTexto = false;
+        AtualizarDestaqueBotao(BotaoTexto, false);
+
+        if (string.IsNullOrWhiteSpace(texto))
+            return;
+
+        Canvas.IniciarTextoPendente(texto, _viewModel.CorTraco, tamanhoFonte: Math.Max(24f, _viewModel.EspessuraTraco * 4), ponto);
+        MostrarBarraPosicionamento();
+    }
+
+    private void MostrarBarraPosicionamento()
+    {
+        BarraFerramentasEdicao.IsVisible = false;
+        BarraPosicionamento.IsVisible = true;
+    }
+
+    private void OcultarBarraPosicionamento()
+    {
+        BarraPosicionamento.IsVisible = false;
+        BarraFerramentasEdicao.IsVisible = _viewModel.ModoEdicao;
+    }
+
+    private void OnConfirmarElementoPendenteClicked(object? sender, EventArgs e)
+    {
+        Canvas.ConfirmarElementoPendente();
+        OcultarBarraPosicionamento();
+    }
+
+    private void OnCancelarElementoPendenteClicked(object? sender, EventArgs e)
+    {
+        Canvas.CancelarElementoPendente();
+        OcultarBarraPosicionamento();
     }
 }

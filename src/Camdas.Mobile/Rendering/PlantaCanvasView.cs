@@ -81,7 +81,7 @@ public sealed class PlantaCanvasView : SKCanvasView
         nameof(CorTraco), typeof(string), typeof(PlantaCanvasView), defaultValue: "#000000");
 
     public static readonly BindableProperty EspessuraTracoProperty = BindableProperty.Create(
-        nameof(EspessuraTraco), typeof(float), typeof(PlantaCanvasView), defaultValue: 6f);
+        nameof(EspessuraTraco), typeof(float), typeof(PlantaCanvasView), defaultValue: 3f);
 
     public static readonly BindableProperty ModoApagarProperty = BindableProperty.Create(
         nameof(ModoApagar), typeof(bool), typeof(PlantaCanvasView), defaultValue: false);
@@ -287,6 +287,122 @@ public sealed class PlantaCanvasView : SKCanvasView
         RedesenharDoHistorico();
     }
 
+    /// <summary>Texto ainda "solto" na tela — movível até o usuário confirmar, quando então é
+    /// desenhado (raster) na camada ativa igual a um traço normal. Coordenadas sempre na resolução
+    /// nativa da imagem base, mesmo espaço usado pelo restante do desenho.</summary>
+    private sealed class ElementoPendente
+    {
+        public required string Texto;
+        public string Cor = "#000000";
+        public float TamanhoFonte;
+        public SKRect Retangulo;
+    }
+
+    private ElementoPendente? _elementoPendente;
+    private SKPoint? _ultimoPontoElementoPendente;
+
+    public bool TemElementoPendente => _elementoPendente is not null;
+
+    /// <summary>Começa a posicionar um texto — aparece "solto" (com moldura) no ponto tocado, pra
+    /// mover antes de confirmar. Ver <see cref="ConfirmarElementoPendente"/>.</summary>
+    public void IniciarTextoPendente(string texto, string cor, float tamanhoFonte, SKPoint posicaoInicial)
+    {
+        using var fonte = new SKFont(SKTypeface.Default, tamanhoFonte);
+        var largura = Math.Max(20f, fonte.MeasureText(texto));
+        var altura = tamanhoFonte * 1.3f;
+
+        _elementoPendente = new ElementoPendente
+        {
+            Texto = texto,
+            Cor = cor,
+            TamanhoFonte = tamanhoFonte,
+            Retangulo = new SKRect(posicaoInicial.X, posicaoInicial.Y - altura, posicaoInicial.X + largura, posicaoInicial.Y),
+        };
+        InvalidateSurface();
+    }
+
+    /// <summary>Desenha o texto pendente (na posição atual) na camada ativa, igual a um traço normal,
+    /// e encerra o modo de posicionamento.</summary>
+    public void ConfirmarElementoPendente()
+    {
+        if (_elementoPendente is not { } pendente)
+            return;
+
+        AdicionarTexto(pendente.Texto, new SKPoint(pendente.Retangulo.Left, pendente.Retangulo.Bottom), pendente.Cor, pendente.TamanhoFonte);
+
+        _elementoPendente = null;
+        InvalidateSurface();
+    }
+
+    /// <summary>Descarta o elemento pendente sem desenhar nada na camada.</summary>
+    public void CancelarElementoPendente()
+    {
+        _elementoPendente = null;
+        _ultimoPontoElementoPendente = null;
+        InvalidateSurface();
+    }
+
+    private void DesenharElementoPendente(SKCanvas canvas, ElementoPendente pendente)
+    {
+        using var paintTexto = new SKPaint { IsAntialias = true, Color = SKColor.Parse(pendente.Cor) };
+        using var fonte = new SKFont(SKTypeface.Default, pendente.TamanhoFonte);
+        canvas.DrawText(pendente.Texto, pendente.Retangulo.Left, pendente.Retangulo.Bottom, fonte, paintTexto);
+
+        // Espessura dividida pelo Zoom pra moldura ter sempre o mesmo tamanho na tela, independente
+        // do nível de zoom (o canvas já está escalado por Zoom neste ponto).
+        var escala = Math.Max(Zoom, 0.05f);
+        using var borda = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Stroke, StrokeWidth = 2f / escala, Color = SKColors.DeepSkyBlue };
+        canvas.DrawRect(pendente.Retangulo, borda);
+    }
+
+    /// <summary>Toque enquanto há um elemento pendente: arrasta pra mover — nunca desenha na camada
+    /// nem aciona modo texto/pan enquanto está posicionando.</summary>
+    private void TratarTouchElementoPendente(ElementoPendente pendente, SKTouchEventArgs e)
+    {
+        var ponto = ConverterTelaParaNativo(e.Location);
+
+        switch (e.ActionType)
+        {
+            case SKTouchAction.Pressed:
+                // Mesmo que o toque caia um pouco fora da moldura exata (medida de texto imprecisa,
+                // dedo grosso), ainda tratamos como "pegar" o elemento — sem isto, um toque levemente
+                // fora do retângulo não iniciava o arrasto, dando a impressão de que ele "não é
+                // arrastável".
+                _ultimoPontoElementoPendente = ponto;
+
+                // Sem isto, o Android entende o arrasto do dedo como gesto de rolagem do ScrollView pai
+                // (PlantaScroll) a partir do primeiro Moved, e o elemento pendente trava no ponto
+                // inicial — mesmo problema (e mesma correção) já documentado no toque de desenho normal.
+                (Handler?.PlatformView as Android.Views.View)?.Parent?.RequestDisallowInterceptTouchEvent(true);
+                break;
+
+            case SKTouchAction.Moved when _ultimoPontoElementoPendente is { } ultimo:
+                var deslocX = ponto.X - ultimo.X;
+                var deslocY = ponto.Y - ultimo.Y;
+                pendente.Retangulo = SKRect.Create(
+                    pendente.Retangulo.Left + deslocX, pendente.Retangulo.Top + deslocY,
+                    pendente.Retangulo.Width, pendente.Retangulo.Height);
+                _ultimoPontoElementoPendente = ponto;
+                InvalidateSurface();
+                break;
+
+            case SKTouchAction.Released:
+            case SKTouchAction.Cancelled:
+                (Handler?.PlatformView as Android.Views.View)?.Parent?.RequestDisallowInterceptTouchEvent(false);
+                _ultimoPontoElementoPendente = null;
+                break;
+        }
+
+        e.Handled = true;
+    }
+
+    /// <summary>Converte um ponto em coordenadas de tela pra coordenadas nativas da imagem base —
+    /// mesma conta usada no início de <see cref="OnTouch"/>, extraída pra reuso pelo elemento pendente.</summary>
+    private SKPoint ConverterTelaParaNativo(SKPoint pontoTela) =>
+        UsarResolucaoNativa && Zoom > 0
+            ? new SKPoint((pontoTela.X - PanX) / Zoom, (pontoTela.Y - PanY) / Zoom)
+            : pontoTela;
+
     /// <summary>Escreve texto na camada ativa na posição indicada (coordenadas na resolução nativa
     /// da imagem base) — entra no histórico igual a um traço, pra poder desfazer.</summary>
     public void AdicionarTexto(string texto, SKPoint posicao, string cor, float tamanhoFonte)
@@ -389,6 +505,10 @@ public sealed class PlantaCanvasView : SKCanvasView
                 PlantaOverlayRenderer.Desenhar(canvas, camadasComZoom, ImagemBase, imagensPorCamada);
             else if (PlantaOverlayRenderer.PodeDesenhar(ImagemBase))
                 canvas.DrawBitmap(ImagemBase, 0, 0);
+
+            if (_elementoPendente is { } pendente)
+                DesenharElementoPendente(canvas, pendente);
+
             canvas.Restore();
             return;
         }
@@ -421,6 +541,14 @@ public sealed class PlantaCanvasView : SKCanvasView
         if (e.ActionType is not (SKTouchAction.Pressed or SKTouchAction.Moved or SKTouchAction.Released or SKTouchAction.Cancelled))
             return;
 
+        // Elemento pendente (texto/imagem sendo posicionado) tem prioridade total sobre qualquer
+        // outro modo — nunca desenha na camada nem aciona pan/texto enquanto está sendo posicionado.
+        if (_elementoPendente is { } pendente)
+        {
+            TratarTouchElementoPendente(pendente, e);
+            return;
+        }
+
         // Modo pan explícito (ícone na barra de ferramentas, ver CamadaEdicaoPage) — separado do
         // desenho de propósito: sem ScrollView ao redor do canvas (competia com o próprio gesto de
         // desenhar), arrastar só move a visualização quando esse modo está ligado; nunca ao mesmo
@@ -445,9 +573,7 @@ public sealed class PlantaCanvasView : SKCanvasView
         // pelo WidthRequest/HeightRequest da Page) — precisa descontar o Pan e dividir por Zoom pra
         // achar o ponto correspondente no bitmap nativo da camada, senão o traço fica na
         // posição/escala erradas.
-        var ponto = UsarResolucaoNativa && Zoom > 0
-            ? new SKPoint((e.Location.X - PanX) / Zoom, (e.Location.Y - PanY) / Zoom)
-            : e.Location;
+        var ponto = ConverterTelaParaNativo(e.Location);
 
         if (ModoTexto)
         {

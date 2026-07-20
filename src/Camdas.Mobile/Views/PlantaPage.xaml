@@ -11,7 +11,8 @@
 
     <Grid Padding="8" RowDefinitions="Auto,Auto,*,Auto,Auto,Auto" RowSpacing="6">
 
-        <HorizontalStackLayout Grid.Row="0" Spacing="8">
+        <HorizontalStackLayout Grid.Row="0" Spacing="8"
+                               IsVisible="{Binding ModoEdicao, Converter={StaticResource InvertedBoolConverter}}">
             <Button Text="Histórico" Clicked="OnAbrirHistoricoClicked" />
             <Button Text="⏳ Edições pendentes (Web)" Clicked="OnAbrirEdicoesPendentesClicked" />
         </HorizontalStackLayout>
@@ -33,22 +34,84 @@
              ScrollView permite ver/percorrer a planta inteira quando o zoom deixa o conteúdo maior
              que a tela; linha com peso 7* (contra 2* da lista de camadas) pra a planta não ficar
              cortada. -->
-        <ScrollView Grid.Row="2" Orientation="Both">
+        <!-- Orientation="Both" na visualização (rolar a planta com zoom). No modo de edição o
+             code-behind troca pra "Neither" — desenhar dentro de um ScrollView faz o arrasto virar
+             rolagem; lá o deslocamento vira o modo pan explícito (✋), igual à edição isolada. -->
+        <ScrollView x:Name="PlantaScroll" Grid.Row="2" Orientation="Both">
             <views:PlantaCanvasView
                 x:Name="Canvas"
                 Camadas="{Binding Camadas}"
                 ImagemBase="{Binding ImagemBase}"
-                ImagensPorCamada="{Binding ImagensPorCamada}" />
+                ImagensPorCamada="{Binding ImagensPorCamada}"
+                CamadaAtivaId="{Binding CamadaEmEdicaoId}"
+                CorTraco="{Binding CorTraco}"
+                EspessuraTraco="{Binding EspessuraTraco}"
+                ModoApagar="{Binding ModoApagar}" />
         </ScrollView>
 
-        <HorizontalStackLayout Grid.Row="3" Spacing="8">
+        <HorizontalStackLayout Grid.Row="3" Spacing="8"
+                               IsVisible="{Binding ModoEdicao, Converter={StaticResource InvertedBoolConverter}}">
             <!-- Oculta a lista de camadas por padrão (deixa mais espaço pra planta) — clique mostra/
                  esconde; a seta indica o estado (▲ mostra, ▼ esconde), igual um "drawer". -->
             <Button x:Name="BotaoAlternarCamadas" Text="▲ Camadas" FontAttributes="Bold" Clicked="OnAlternarCamadasClicked" />
             <Button Text="+ Nova camada" Clicked="OnNovaCamadaClicked" />
-            <Button Text="+ Imagem" Clicked="OnAdicionarImagemClicked" />
             <Button Text="💾 Salvar tudo (PNG)" Clicked="OnSalvarNaGaleriaClicked" />
         </HorizontalStackLayout>
+
+        <!-- Barra de ferramentas de desenho: aparece só no modo de edição (ModoEdicao). Desenha na
+             camada ativa com as demais visíveis por baixo, pra o usuário não repetir medidas. Mesmos
+             controles da antiga tela isolada de edição, agora aqui na própria visualização.
+             x:Name pra poder escondê-la enquanto um elemento (texto/imagem) está sendo posicionado
+             (ver BarraPosicionamento) — não dá pra desenhar/trocar ferramenta nesse meio-tempo. -->
+        <VerticalStackLayout x:Name="BarraFerramentasEdicao" Grid.Row="3" Spacing="6" IsVisible="{Binding ModoEdicao}">
+            <Border StrokeShape="RoundRectangle 8" Stroke="#D8D0C0" BackgroundColor="#F5F1E8"
+                    Padding="10,4" HorizontalOptions="Center">
+                <HorizontalStackLayout Spacing="12">
+                    <Button Text="↶" FontSize="20" Padding="6,0" BackgroundColor="Transparent" TextColor="#333" Clicked="OnDesfazerClicked" />
+                    <Button Text="↷" FontSize="20" Padding="6,0" BackgroundColor="Transparent" TextColor="#333" Clicked="OnRefazerClicked" />
+                    <BoxView WidthRequest="1" HeightRequest="24" Color="#D8D0C0" />
+                    <Button x:Name="BotaoTexto" Text="T" FontSize="18" FontAttributes="Bold" Padding="8,0"
+                            BackgroundColor="Transparent" TextColor="#333" Clicked="OnAlternarModoTextoClicked" />
+                    <Button x:Name="BotaoPan" Text="✋" FontSize="18" Padding="8,0"
+                            BackgroundColor="Transparent" TextColor="#333" Clicked="OnAlternarModoPanClicked" />
+                    <ImageButton x:Name="BotaoBorracha" Source="eraser.png" WidthRequest="28" HeightRequest="28"
+                                 Padding="4" BackgroundColor="Transparent" Clicked="OnAlternarBorrachaClicked" />
+                    <BoxView WidthRequest="1" HeightRequest="24" Color="#D8D0C0" />
+                    <Button Text="Limpar" FontSize="14" Padding="6,0" BackgroundColor="Transparent" TextColor="#333" Clicked="OnLimparClicked" />
+                </HorizontalStackLayout>
+            </Border>
+
+            <HorizontalStackLayout Spacing="6" HorizontalOptions="Center">
+                <Button BackgroundColor="#000000" WidthRequest="28" HeightRequest="28" CommandParameter="#000000" Clicked="OnCorClicked" />
+                <Button BackgroundColor="#E74C3C" WidthRequest="28" HeightRequest="28" CommandParameter="#E74C3C" Clicked="OnCorClicked" />
+                <Button BackgroundColor="#E67E22" WidthRequest="28" HeightRequest="28" CommandParameter="#E67E22" Clicked="OnCorClicked" />
+                <Button BackgroundColor="#F1C40F" WidthRequest="28" HeightRequest="28" CommandParameter="#F1C40F" Clicked="OnCorClicked" />
+                <Button BackgroundColor="#2ECC71" WidthRequest="28" HeightRequest="28" CommandParameter="#2ECC71" Clicked="OnCorClicked" />
+                <Button BackgroundColor="#2E86DE" WidthRequest="28" HeightRequest="28" CommandParameter="#2E86DE" Clicked="OnCorClicked" />
+                <Button BackgroundColor="#8E44AD" WidthRequest="28" HeightRequest="28" CommandParameter="#8E44AD" Clicked="OnCorClicked" />
+                <Button BackgroundColor="#7F8C8D" WidthRequest="28" HeightRequest="28" CommandParameter="#7F8C8D" Clicked="OnCorClicked" />
+            </HorizontalStackLayout>
+
+            <HorizontalStackLayout Spacing="8" HorizontalOptions="Center">
+                <Label Text="Espessura" VerticalOptions="Center" />
+                <Slider Minimum="1" Maximum="{Binding EspessuraMaxima}" Value="{Binding EspessuraTraco, Mode=TwoWay}"
+                        WidthRequest="120" VerticalOptions="Center" />
+                <Button Text="✓ Concluir" BackgroundColor="#2ECC71" TextColor="White" Clicked="OnConcluirEdicaoClicked" />
+            </HorizontalStackLayout>
+        </VerticalStackLayout>
+
+        <!-- Barra de posicionamento: aparece só enquanto um texto recém-adicionado está "solto" na
+             tela (arraste pra mover). Substitui a barra de ferramentas normal nesse meio-tempo — ver
+             OnConfirmarElementoPendenteClicked/OnCancelarElementoPendenteClicked. -->
+        <VerticalStackLayout x:Name="BarraPosicionamento" Grid.Row="3" Spacing="6" IsVisible="False"
+                             HorizontalOptions="Center">
+            <Label Text="Arraste o texto pra posicionar"
+                   FontSize="12" TextColor="#333" HorizontalOptions="Center" />
+            <HorizontalStackLayout Spacing="10" HorizontalOptions="Center">
+                <Button Text="✓ Confirmar" BackgroundColor="#2ECC71" TextColor="White" Clicked="OnConfirmarElementoPendenteClicked" />
+                <Button Text="✕ Cancelar" BackgroundColor="#E74C3C" TextColor="White" Clicked="OnCancelarElementoPendenteClicked" />
+            </HorizontalStackLayout>
+        </VerticalStackLayout>
 
         <!-- Painel estilo Photoshop: fundo escuro, olho (visibilidade), miniatura em xadrez (toque
              abre o menu de opções da camada), nome, cadeado (só indicador — o botão foi para o
@@ -56,18 +119,18 @@
              reordenar soltando sobre outra camada, ou soltando na lixeira ao lado pra excluir.
              Oculto por padrão (IsVisible=False) — ver BotaoAlternarCamadas; HeightRequest limita a
              altura quando aberto, pra não empurrar o canvas pra fora da tela, com scroll próprio. -->
-        <Grid x:Name="PainelCamadas" Grid.Row="4" ColumnDefinitions="*,44" ColumnSpacing="6"
+        <Grid x:Name="PainelCamadas" Grid.Row="4" ColumnDefinitions="*,72" ColumnSpacing="6"
               HeightRequest="220" IsVisible="False">
             <Border Grid.Column="0" StrokeShape="RoundRectangle 4" Stroke="#1E1E1E" BackgroundColor="#2E2E2E" Padding="0">
                 <CollectionView ItemsSource="{Binding Camadas}" BackgroundColor="Transparent">
                     <CollectionView.ItemTemplate>
                         <DataTemplate x:DataType="contracts:CamadaDto">
-                            <Grid Padding="6,4" ColumnDefinitions="32,36,*,24" ColumnSpacing="6" RowDefinitions="Auto" BackgroundColor="Transparent">
+                            <Grid Padding="6,4" ColumnDefinitions="32,36,*,32,24" ColumnSpacing="6" RowDefinitions="Auto" BackgroundColor="Transparent">
                                 <Grid.GestureRecognizers>
                                     <TapGestureRecognizer
                                         Command="{Binding BindingContext.SelecionarCamadaCommand, Source={RelativeSource AncestorType={x:Type ContentPage}}}"
                                         CommandParameter="{Binding .}" />
-                                    <DragGestureRecognizer CanDrag="True" DragStarting="OnCamadaDragStarting" />
+                                    <DragGestureRecognizer CanDrag="True" DragStarting="OnCamadaDragStarting" DropCompleted="OnCamadaDropCompleted" />
                                     <DropGestureRecognizer AllowDrop="True" Drop="OnCamadaDrop" />
                                 </Grid.GestureRecognizers>
 
@@ -100,8 +163,16 @@
                                     </HorizontalStackLayout>
                                 </VerticalStackLayout>
 
+                                <!-- Opções da camada (opacidade, bloqueios, duplicar, limpar, excluir): botão
+                                     explícito, além do toque na miniatura — a opacidade ficava escondida atrás
+                                     do toque na miniatura (alvo pequeno), dando a impressão de ter "sumido". -->
+                                <Button Grid.Column="3" Text="⋮" FontSize="20" TextColor="#DCDCDC"
+                                        BackgroundColor="Transparent" Padding="0" BorderWidth="0"
+                                        Command="{Binding BindingContext.AbrirMenuCamadaCommand, Source={RelativeSource AncestorType={x:Type ContentPage}}}"
+                                        CommandParameter="{Binding .}" />
+
                                 <!-- Alça visual: indica que a linha pode ser arrastada pra reordenar/excluir. -->
-                                <Label Grid.Column="3" Text="⠿" FontSize="14" TextColor="#777777"
+                                <Label Grid.Column="4" Text="⠿" FontSize="14" TextColor="#777777"
                                        HorizontalOptions="Center" VerticalOptions="Center" />
                             </Grid>
                         </DataTemplate>
@@ -109,66 +180,74 @@
                 </CollectionView>
             </Border>
 
-            <!-- Lixeira: solte uma camada arrastada aqui pra excluí-la. -->
-            <Border Grid.Column="1" StrokeShape="RoundRectangle 4" Stroke="#1E1E1E" BackgroundColor="#3A2323" Padding="0">
-                <Border.GestureRecognizers>
-                    <DropGestureRecognizer AllowDrop="True" Drop="OnCamadaDropNaLixeira" />
-                </Border.GestureRecognizers>
-                <Label Text="🗑" FontSize="20" TextColor="#E74C3C" HorizontalOptions="Center" VerticalOptions="Center" />
+            <!-- Lixeira: solte uma camada arrastada aqui pra excluí-la. Acende (fundo/borda mais claros)
+                 só enquanto a camada está de fato sobre ela — via listener nativo Android registrado
+                 no code-behind (HandlerChanged), que recebe os eventos reais de entrada/saída do
+                 arrasto (ACTION_DRAG_ENTERED/EXITED). O DropGestureRecognizer do MAUI não expõe esses
+                 eventos no Android (só Drop, sem posição durante o arrasto), por isso o listener nativo. -->
+            <Border x:Name="BordaLixeira" Grid.Column="1" StrokeShape="RoundRectangle 6"
+                    Stroke="#1E1E1E" BackgroundColor="#3A2323" Padding="0">
+                <VerticalStackLayout Spacing="2" HorizontalOptions="Center" VerticalOptions="Center">
+                    <Label Text="🗑" FontSize="28" TextColor="#E74C3C" HorizontalOptions="Center" />
+                    <Label Text="Excluir" FontSize="10" TextColor="#E7A2A2" HorizontalOptions="Center" />
+                </VerticalStackLayout>
             </Border>
         </Grid>
 
         <Label Grid.Row="5" Text="{Binding MensagemErro}" TextColor="Red" />
 
-        <!-- Menu de opções da camada, aberto ao tocar a miniatura: opacidade, limpar (sem excluir a
+        <!-- Menu de opções da camada, aberto ao tocar o botão ⋮: opacidade, limpar (sem excluir a
              camada), bloqueio, bloqueio de opacidade, duplicar, excluir. Grid.RowSpan cobre a tela
-             inteira e fica por cima de tudo por ser o último filho do Grid raiz. -->
-        <Grid Grid.Row="0" Grid.RowSpan="6" BackgroundColor="#AA000000"
+             inteira só pra capturar o toque "fora" que fecha (fundo transparente, sem escurecer a
+             planta) — o menu em si fica pequeno, ancorado no canto inferior direito, pra dar pra ver
+             a planta (e o nível de opacidade mudando nela) enquanto arrasta o slider. -->
+        <Grid Grid.Row="0" Grid.RowSpan="6" BackgroundColor="Transparent"
               IsVisible="{Binding CamadaMenuAberta, Converter={StaticResource ObjetoNuloParaBoolConverter}, ConverterParameter=inverso}">
             <Grid.GestureRecognizers>
                 <TapGestureRecognizer Command="{Binding FecharMenuCamadaCommand}" />
             </Grid.GestureRecognizers>
 
             <!-- MaximumHeightRequest + ScrollView: com os 8 itens do menu, o conteúdo podia ficar mais
-                 alto que a tela — e como o Border fica centralizado verticalmente sem rolagem, o
-                 excesso "vazava" pros dois lados por igual, cortando o topo (Nome + Opacidade) e o
-                 rodapé (bug relatado: "a opacidade das camadas sumiu", era só o topo do menu cortado). -->
-            <Border Padding="16" Margin="24" BackgroundColor="#2E2E2E" Stroke="#1E1E1E" StrokeShape="RoundRectangle 8"
-                    VerticalOptions="Center" HorizontalOptions="Fill" MaximumHeightRequest="480">
+                 alto que a tela disponível — sem rolagem o excesso cortaria topo/rodapé. -->
+            <Border Padding="10" Margin="12" BackgroundColor="#2E2E2E" Stroke="#1E1E1E" StrokeShape="RoundRectangle 8"
+                    VerticalOptions="End" HorizontalOptions="End" WidthRequest="200" MaximumHeightRequest="360"
+                    Opacity="0.97">
                 <Border.GestureRecognizers>
                     <TapGestureRecognizer />
                 </Border.GestureRecognizers>
 
                 <ScrollView>
-                    <VerticalStackLayout Spacing="12" BindingContext="{Binding CamadaMenuAberta}" x:DataType="contracts:CamadaDto">
-                        <Label Text="{Binding Nome}" FontAttributes="Bold" FontSize="16" TextColor="White" />
+                    <VerticalStackLayout Spacing="8" BindingContext="{Binding CamadaMenuAberta}" x:DataType="contracts:CamadaDto">
+                        <Label Text="{Binding Nome}" FontAttributes="Bold" FontSize="13" TextColor="White" LineBreakMode="TailTruncation" />
 
-                        <VerticalStackLayout Spacing="4">
-                            <Label Text="Opacidade" TextColor="#CCCCCC" FontSize="12" />
+                        <VerticalStackLayout Spacing="2">
+                            <Label Text="Opacidade" TextColor="#CCCCCC" FontSize="11" />
                             <Slider Minimum="0" Maximum="1" Value="{Binding Opacidade, Mode=TwoWay}"
                                     DragCompleted="OnOpacidadeSliderDragCompleted" />
                         </VerticalStackLayout>
 
-                        <Button Text="Limpar camada"
+                        <Button Text="Limpar camada" FontSize="12" Padding="6,4"
                                 Command="{Binding BindingContext.LimparCamadaCommand, Source={RelativeSource AncestorType={x:Type ContentPage}}}"
                                 CommandParameter="{Binding .}" />
 
                         <Button Text="{Binding Bloqueada, Converter={StaticResource BoolParaTextoConverter}, ConverterParameter='Desbloquear camada;Bloquear camada'}"
+                                FontSize="12" Padding="6,4"
                                 Command="{Binding BindingContext.AlternarBloqueioCommand, Source={RelativeSource AncestorType={x:Type ContentPage}}}"
                                 CommandParameter="{Binding .}" />
 
                         <Button Text="{Binding BloqueioAlpha, Converter={StaticResource BoolParaTextoConverter}, ConverterParameter='Desbloquear opacidade;Bloquear opacidade'}"
+                                FontSize="12" Padding="6,4"
                                 Command="{Binding BindingContext.AlternarBloqueioAlphaCommand, Source={RelativeSource AncestorType={x:Type ContentPage}}}"
                                 CommandParameter="{Binding .}" />
 
-                        <Button Text="Duplicar camada"
+                        <Button Text="Duplicar camada" FontSize="12" Padding="6,4"
                                 Command="{Binding BindingContext.DuplicarCamadaCommand, Source={RelativeSource AncestorType={x:Type ContentPage}}}"
                                 CommandParameter="{Binding .}" />
 
-                        <Button Text="Excluir camada" TextColor="#E74C3C"
+                        <Button Text="Excluir camada" TextColor="#E74C3C" FontSize="12" Padding="6,4"
                                 CommandParameter="{Binding .}" Clicked="OnExcluirCamadaClicked" />
 
-                        <Button Text="Fechar"
+                        <Button Text="Fechar" FontSize="12" Padding="6,4"
                                 Command="{Binding BindingContext.FecharMenuCamadaCommand, Source={RelativeSource AncestorType={x:Type ContentPage}}}" />
                     </VerticalStackLayout>
                 </ScrollView>

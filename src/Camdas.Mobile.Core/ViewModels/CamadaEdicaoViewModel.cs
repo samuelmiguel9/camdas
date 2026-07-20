@@ -27,7 +27,7 @@ public partial class CamadaEdicaoViewModel(IApiClient apiClient, IArmazenamentoR
     private string _corTraco = "#000000";
 
     [ObservableProperty]
-    private float _espessuraTraco = 6f;
+    private float _espessuraTraco = 3f;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(EspessuraMaxima))]

@@ -64,5 +64,26 @@ public static class HistoricoVersoes
                 "Botão de arrastar reordenar camadas não funcionava (relatado em teste no aparelho) — corrigido trocando por botões subir/descer.",
                 "Planta cortada na visualização geral (relatado em teste no aparelho) — corrigido redistribuindo o espaço do layout entre canvas e lista de camadas.",
             ]),
+
+        new AtualizacaoVersao(
+            "2.0.0",
+            DateTime.Now,
+            "Estabilização do SkiaSharp 3.x (fim do crash nativo recorrente) e edição de camada movida pra dentro da tela principal.",
+            [
+                "SkiaSharp atualizado pra 3.119.4 (Camdas.Mobile em net9.0-android).",
+                "PlantaOverlayRenderer.PodeDesenhar valida todo bitmap antes de qualquer DrawBitmap (Handle/dimensões/ReadyToDraw) — elimina o SIGSEGV nativo (sk_image_new_from_bitmap) que persistia mesmo após a atualização do SkiaSharp.",
+                "Zoom da tela de visualização agora tem teto calculado pelo tamanho da imagem base, pra a superfície do canvas nunca estourar o limite de bitmap do Android.",
+                "Criar/editar uma camada não abre mais uma tela separada: acontece na própria tela de visualização (PlantaPage), com as demais camadas visíveis por baixo, evitando medida redundante.",
+                "Borracha virou um ícone dedicado na barra de ferramentas (antes era um Switch separado).",
+                "Lixeira de excluir camada (arrastar e soltar) mais larga e só acende quando a camada arrastada está de fato sobre ela (listener nativo Android — o MAUI não expõe essa posição no Android).",
+                "Texto adicionado ao desenho aparece \"solto\" (arrastável) até confirmar a posição, em vez de já cravar direto no traço.",
+                "Menu de opções da camada (opacidade, bloqueios, duplicar, excluir) encolhido e movido pro canto, deixando a planta visível por trás pra ver o efeito da opacidade em tempo real.",
+                "Espessura mínima do traço reduzida (permite um traço bem mais fino).",
+            ],
+            [
+                "SIGSEGV nativo recorrente ao interagir com a tela (teclado abrindo/fechando, S Pen, trocar de camada) — causa raiz: SkiaSharp 3.x chama sk_image_new_from_bitmap internamente em todo DrawBitmap, e crasha se o bitmap já foi liberado ou está sem pixels; nenhum try/catch em C# intercepta esse crash nativo.",
+                "\"Canvas: trying to draw too large bitmap\" ao dar zoom alto numa planta grande — corrigido limitando o zoom máximo pelo tamanho da imagem base.",
+                "Arrastar um texto recém-adicionado não se movia (travava no ponto inicial) — mesma causa (e mesma correção) do bug antigo do traço: o ScrollView pai roubava o gesto sem RequestDisallowInterceptTouchEvent.",
+            ]),
     ];
 }
