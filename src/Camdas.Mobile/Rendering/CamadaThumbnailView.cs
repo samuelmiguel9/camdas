@@ -45,7 +45,7 @@ public sealed class CamadaThumbnailView : SKCanvasView
         DesenharXadrez(canvas, info);
 
         if (CamadaId is not { } id || ImagensPorCamada is null || !ImagensPorCamada.TryGetValue(id, out var bitmap)
-            || bitmap.Width <= 0 || bitmap.Height <= 0)
+            || !Camdas.Mobile.Rendering.PlantaOverlayRenderer.PodeDesenhar(bitmap))
             return;
 
         var escala = Math.Min((float)info.Width / bitmap.Width, (float)info.Height / bitmap.Height);

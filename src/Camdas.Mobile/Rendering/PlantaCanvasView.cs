@@ -387,7 +387,7 @@ public sealed class PlantaCanvasView : SKCanvasView
             canvas.Scale(Zoom);
             if (Camadas is { Count: > 0 } camadasComZoom)
                 PlantaOverlayRenderer.Desenhar(canvas, camadasComZoom, ImagemBase, imagensPorCamada);
-            else
+            else if (PlantaOverlayRenderer.PodeDesenhar(ImagemBase))
                 canvas.DrawBitmap(ImagemBase, 0, 0);
             canvas.Restore();
             return;
@@ -397,7 +397,7 @@ public sealed class PlantaCanvasView : SKCanvasView
 
         if (Camadas is { Count: > 0 } camadas)
             PlantaOverlayRenderer.Desenhar(canvas, camadas, imagemBaseEscalada, imagensPorCamada);
-        else if (imagemBaseEscalada is not null)
+        else if (PlantaOverlayRenderer.PodeDesenhar(imagemBaseEscalada))
             canvas.DrawBitmap(imagemBaseEscalada, 0, 0);
     }
 
@@ -543,7 +543,7 @@ public sealed class PlantaCanvasView : SKCanvasView
         using (var canvasNovo = new SKCanvas(novo))
         {
             canvasNovo.Clear(SKColors.Transparent);
-            if (existente is not null)
+            if (PlantaOverlayRenderer.PodeDesenhar(existente))
                 canvasNovo.DrawBitmap(existente, new SKRect(0, 0, largura, altura));
         }
 
