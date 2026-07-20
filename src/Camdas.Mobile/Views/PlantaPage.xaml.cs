@@ -40,12 +40,33 @@ public partial class PlantaPage : ContentPage
         }
     }
 
+    // O SKCanvasView aqui é inflado pra imagemBase.Width×zoom (pra rolar dentro do ScrollView), e o
+    // Android aloca uma superfície bitmap desse tamanho. Acima de ~100 MB o Android recusa desenhar
+    // (RecordingCanvas.throwIfCannotDraw: "trying to draw too large bitmap") e derruba o app — era o
+    // que acontecia ao dar zoom alto numa planta grande. Mantemos um teto conservador de bytes e de
+    // dimensão por lado, e limitamos o zoom pra nunca ultrapassá-lo (o desenho segue em resolução
+    // nativa; só não dá pra ampliar a superfície visível além do que o Android aguenta).
+    private const long OrcamentoBytesSuperficie = 64L * 1024 * 1024;
+    private const int DimensaoMaximaSuperficie = 8000;
+
+    private float ZoomMaximoSeguro(int largura, int altura)
+    {
+        var area = (double)largura * altura;
+        if (area <= 0)
+            return (float)ZoomSlider.Maximum;
+
+        var porBytes = Math.Sqrt(OrcamentoBytesSuperficie / (4.0 * area));
+        var porDimensao = (double)DimensaoMaximaSuperficie / Math.Max(largura, altura);
+        return (float)Math.Min(porBytes, porDimensao);
+    }
+
     private void AtualizarZoom(float zoom)
     {
         if (_viewModel.ImagemBase is not { } imagemBase)
             return;
 
-        zoom = Math.Clamp(zoom, (float)ZoomSlider.Minimum, (float)ZoomSlider.Maximum);
+        var zoomMaximo = Math.Min((float)ZoomSlider.Maximum, ZoomMaximoSeguro(imagemBase.Width, imagemBase.Height));
+        zoom = Math.Clamp(zoom, (float)ZoomSlider.Minimum, zoomMaximo);
 
         Canvas.UsarResolucaoNativa = true;
         Canvas.Zoom = zoom;
