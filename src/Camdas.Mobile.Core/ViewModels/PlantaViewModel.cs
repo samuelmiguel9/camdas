@@ -136,8 +136,10 @@ public partial class PlantaViewModel(IApiClient apiClient, ISalvadorGaleria salv
             using (var canvas = new SKCanvas(bitmap))
                 PlantaOverlayRenderer.Desenhar(canvas, Camadas, ImagemBase, ImagensPorCamada);
 
-            using var imagem = SKImage.FromBitmap(bitmap);
-            using var dados = imagem.Encode(SKEncodedImageFormat.Png, 100);
+            // Encode direto do SKBitmap (não via SKImage.FromBitmap) — o Galaxy Tab A crashava com
+            // SIGSEGV nativo dentro de sk_image_new_from_bitmap (libSkiaSharp.so), reproduzido em
+            // mais de uma tela que fazia esse wrap antes de codificar o PNG.
+            using var dados = bitmap.Encode(SKEncodedImageFormat.Png, 100);
 
             var nomeArquivo = $"{Planta.Nome}_{DateTime.Now:yyyyMMdd_HHmmss}.png";
             await salvadorGaleria.SalvarPngAsync(dados.ToArray(), nomeArquivo);
@@ -172,8 +174,7 @@ public partial class PlantaViewModel(IApiClient apiClient, ISalvadorGaleria salv
 
             using var bitmapRedimensionado = bitmapOriginal.Resize(
                 new SKImageInfo(ImagemBase.Width, ImagemBase.Height), SKFilterQuality.Medium);
-            using var imagem = SKImage.FromBitmap(bitmapRedimensionado ?? bitmapOriginal);
-            using var dados = imagem.Encode(SKEncodedImageFormat.Png, 100);
+            using var dados = (bitmapRedimensionado ?? bitmapOriginal).Encode(SKEncodedImageFormat.Png, 100);
             using var streamPng = dados.AsStream();
 
             var camada = await apiClient.CriarCamadaAsync(Planta.Id, nome);

@@ -39,9 +39,13 @@ public sealed class CamadaThumbnailView : SKCanvasView
 
         var canvas = e.Surface.Canvas;
         var info = e.Info;
+        if (info.Width <= 0 || info.Height <= 0)
+            return;
+
         DesenharXadrez(canvas, info);
 
-        if (CamadaId is not { } id || ImagensPorCamada is null || !ImagensPorCamada.TryGetValue(id, out var bitmap))
+        if (CamadaId is not { } id || ImagensPorCamada is null || !ImagensPorCamada.TryGetValue(id, out var bitmap)
+            || bitmap.Width <= 0 || bitmap.Height <= 0)
             return;
 
         var escala = Math.Min((float)info.Width / bitmap.Width, (float)info.Height / bitmap.Height);

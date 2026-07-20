@@ -108,8 +108,9 @@ public partial class CamadaEdicaoViewModel(IApiClient apiClient, IArmazenamentoR
         if (Camada is null || !ImagensPorCamada.TryGetValue(Camada.Id, out var bitmap))
             return;
 
-        using var imagem = SKImage.FromBitmap(bitmap);
-        using var dados = imagem.Encode(SKEncodedImageFormat.Png, 100);
+        // Encode direto do SKBitmap (não via SKImage.FromBitmap) — evita sk_image_new_from_bitmap,
+        // ponto de crash nativo (SIGSEGV) reproduzido no Galaxy Tab A.
+        using var dados = bitmap.Encode(SKEncodedImageFormat.Png, 100);
         await armazenamentoRascunho.SalvarAsync(Camada.Id, dados.ToArray());
     }
 
@@ -126,8 +127,7 @@ public partial class CamadaEdicaoViewModel(IApiClient apiClient, IArmazenamentoR
         MensagemErro = null;
         try
         {
-            using var imagem = SKImage.FromBitmap(bitmap);
-            using var dados = imagem.Encode(SKEncodedImageFormat.Png, 100);
+            using var dados = bitmap.Encode(SKEncodedImageFormat.Png, 100);
             using var stream = dados.AsStream();
 
             await apiClient.AtualizarImagemCamadaAsync(_plantaId, Camada.Id, stream);

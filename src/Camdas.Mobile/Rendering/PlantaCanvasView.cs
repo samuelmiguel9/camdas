@@ -363,6 +363,15 @@ public sealed class PlantaCanvasView : SKCanvasView
     {
         base.OnPaintSurface(e);
 
+        // Durante transições de foco/layout (teclado abrindo, hover da caneta, fragment sendo
+        // recriado) o Android pode colapsar a view pra 0x0 por um instante antes de estabilizar no
+        // tamanho final. Sem este guard, ObterImagemBaseEscalada chamava ImagemBase.Resize com
+        // destino 0x0, que gera um SKBitmap com buffer de pixels inválido — e o DrawBitmap seguinte
+        // crasha nativamente dentro do SkiaSharp (sk_image_new_from_bitmap, null pointer dereference)
+        // ao tentar empacotar esse bitmap como SKImage. Ver captura_log4.txt / CRASH_ANALISE.
+        if (e.Info.Width <= 0 || e.Info.Height <= 0)
+            return;
+
         var canvas = e.Surface.Canvas;
         canvas.Clear(SKColors.White);
 
@@ -394,7 +403,7 @@ public sealed class PlantaCanvasView : SKCanvasView
 
     private SKBitmap? ObterImagemBaseEscalada(SKImageInfo info)
     {
-        if (ImagemBase is null)
+        if (ImagemBase is null || info.Width <= 0 || info.Height <= 0)
             return null;
 
         var tamanhoAlvo = new SKSizeI(info.Width, info.Height);
