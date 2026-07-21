@@ -28,9 +28,17 @@ public partial class PlantasDoProjetoPage : ContentPage
 
     private async void OnImportarClicked(object? sender, EventArgs e)
     {
-        var origem = await DisplayActionSheet("Nova planta — de onde?", "Cancelar", null, "Câmera", "Galeria", "Arquivo (PDF ou imagem)");
+        var origem = await DisplayActionSheet(
+            "Nova planta — de onde?", "Cancelar", null,
+            "Câmera", "Galeria", "Arquivo (PDF ou imagem)", "Projeto exportado (.json)");
         if (origem is null || origem == "Cancelar")
             return;
+
+        if (origem == "Projeto exportado (.json)")
+        {
+            await ImportarArquivoDeProjetoAsync();
+            return;
+        }
 
         FileResult? arquivo = origem switch
         {
@@ -62,6 +70,33 @@ public partial class PlantasDoProjetoPage : ContentPage
 
         await using var conteudo = await arquivo.OpenReadAsync();
         await _viewModel.ImportarAsync(nome, descricao, nomeCliente, tipo, arquivo.FileName, conteudo);
+    }
+
+    /// <summary>Abre um arquivo .json exportado por <see cref="PlantaPage.OnExportarProjetoClicked"/>
+    /// (em outro dispositivo ou neste mesmo) e recria a planta com todas as camadas — ver
+    /// PlantasDoProjetoViewModel.ImportarArquivoDeProjetoAsync.</summary>
+    private async Task ImportarArquivoDeProjetoAsync()
+    {
+        var arquivo = await FilePicker.Default.PickAsync(new PickOptions
+        {
+            PickerTitle = "Selecione o arquivo de projeto (.json)",
+            FileTypes = new FilePickerFileType(new Dictionary<DevicePlatform, IEnumerable<string>>
+            {
+                // Compartilhado por outro app (WhatsApp, Drive, e-mail...), o .json costuma chegar
+                // marcado como application/json — mas alguns apps retransmitem como octet-stream
+                // genérico; aceitamos os dois pra não travar na hora de selecionar.
+                [DevicePlatform.Android] = ["application/json", "application/octet-stream"],
+            }),
+        });
+
+        if (arquivo is null)
+            return;
+
+        await using var conteudo = await arquivo.OpenReadAsync();
+        using var memoria = new MemoryStream();
+        await conteudo.CopyToAsync(memoria);
+
+        await _viewModel.ImportarArquivoDeProjetoAsync(memoria.ToArray());
     }
 
     /// <summary>Câmera pode não existir/estar disponível (emulador sem câmera virtual, por

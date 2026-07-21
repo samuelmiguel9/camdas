@@ -70,7 +70,7 @@
             </HorizontalStackLayout>
             <HorizontalStackLayout Spacing="6">
                 <Label Text="Espessura" VerticalOptions="Center" />
-                <Slider Minimum="2" Maximum="{Binding EspessuraMaxima}" Value="{Binding EspessuraTraco, Mode=TwoWay}" WidthRequest="120" VerticalOptions="Center" />
+                <Slider Minimum="1" Maximum="{Binding EspessuraMaxima}" Value="{Binding EspessuraTraco, Mode=TwoWay}" WidthRequest="120" VerticalOptions="Center" />
                 <Label Text="Apagar" VerticalOptions="Center" />
                 <Switch IsToggled="{Binding ModoApagar, Mode=TwoWay}" />
             </HorizontalStackLayout>

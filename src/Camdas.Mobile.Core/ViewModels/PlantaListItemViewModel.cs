@@ -58,8 +58,9 @@ public sealed partial class PlantaListItemViewModel : ObservableObject
                 if (reduzida is null)
                     return;
 
-                using var imagem = SKImage.FromBitmap(reduzida);
-                using var dados = imagem.Encode(SKEncodedImageFormat.Png, 90);
+                // Encode direto do SKBitmap (não via SKImage.FromBitmap) — evita sk_image_new_from_bitmap,
+                // ponto de crash nativo (SIGSEGV) reproduzido no Galaxy Tab A.
+                using var dados = reduzida.Encode(SKEncodedImageFormat.Png, 90);
                 MiniaturaPng = dados.ToArray();
             }
             finally

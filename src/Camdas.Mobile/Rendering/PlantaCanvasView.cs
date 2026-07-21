@@ -28,7 +28,7 @@ public sealed class PlantaCanvasView : SKCanvasView
     /// já que o desenho é raster (não dá pra "remover" uma pincelada específica de outro jeito).</summary>
     private abstract record AcaoDesenho;
     private sealed record AcaoTraco(List<SKPoint> Pontos, string Cor, float Espessura, bool Apagar) : AcaoDesenho;
-    private sealed record AcaoTexto(string Texto, SKPoint Posicao, string Cor, float TamanhoFonte) : AcaoDesenho;
+    private sealed record AcaoTexto(string Texto, SKPoint Posicao, string Cor, float TamanhoFonte, float RotacaoGraus = 0f) : AcaoDesenho;
 
     private readonly List<AcaoDesenho> _historico = [];
     private readonly Stack<AcaoDesenho> _desfeitas = [];
@@ -55,6 +55,7 @@ public sealed class PlantaCanvasView : SKCanvasView
         if (newValue is INotifyCollectionChanged novaColecao)
             novaColecao.CollectionChanged += view.OnCamadasCollectionChanged;
 
+        view.InvalidarComposicaoCache();
         view.InvalidateSurface();
     }
 
@@ -66,13 +67,19 @@ public sealed class PlantaCanvasView : SKCanvasView
             var view = (PlantaCanvasView)bindable;
             view._imagemBaseEscalada?.Dispose();
             view._imagemBaseEscalada = null;
+            view.InvalidarComposicaoCache();
             view.InvalidateSurface();
         });
 
     public static readonly BindableProperty ImagensPorCamadaProperty = BindableProperty.Create(
         nameof(ImagensPorCamada), typeof(IDictionary<Guid, SKBitmap>), typeof(PlantaCanvasView),
         defaultValue: null,
-        propertyChanged: (bindable, _, _) => ((PlantaCanvasView)bindable).InvalidateSurface());
+        propertyChanged: (bindable, _, _) =>
+        {
+            var view = (PlantaCanvasView)bindable;
+            view.InvalidarComposicaoCache();
+            view.InvalidateSurface();
+        });
 
     public static readonly BindableProperty CamadaAtivaIdProperty = BindableProperty.Create(
         nameof(CamadaAtivaId), typeof(Guid?), typeof(PlantaCanvasView), defaultValue: null);
@@ -81,7 +88,7 @@ public sealed class PlantaCanvasView : SKCanvasView
         nameof(CorTraco), typeof(string), typeof(PlantaCanvasView), defaultValue: "#000000");
 
     public static readonly BindableProperty EspessuraTracoProperty = BindableProperty.Create(
-        nameof(EspessuraTraco), typeof(float), typeof(PlantaCanvasView), defaultValue: 6f);
+        nameof(EspessuraTraco), typeof(float), typeof(PlantaCanvasView), defaultValue: 3f);
 
     public static readonly BindableProperty ModoApagarProperty = BindableProperty.Create(
         nameof(ModoApagar), typeof(bool), typeof(PlantaCanvasView), defaultValue: false);
@@ -130,7 +137,17 @@ public sealed class PlantaCanvasView : SKCanvasView
     private SKBitmap? _imagemBaseEscalada;
     private SKSizeI _tamanhoImagemBaseEscalada;
     private SKPoint? _ultimoPontoToque;
+    private SKPoint? _penultimoPontoToque;
     private SKPoint? _ultimoPontoPan;
+
+    /// <summary>Composição (imagem base + camadas visíveis) pré-renderizada num único bitmap, usada
+    /// só quando <see cref="UsarResolucaoNativa"/> é true. Sem isto, mexer no zoom/pan da
+    /// pré-visualização (CamadaEdicaoPage) disparava um DrawBitmap por camada A CADA FRAME de
+    /// arrasto — pesado o bastante pra travar num aparelho mais fraco, mesmo sem nenhum conteúdo
+    /// mudando (bug reportado: "opção de mexer na pré-visualização está travando"). Só é invalidada
+    /// quando o conteúdo de verdade muda (traço, visibilidade/ordem de camada, imagem base) — nunca
+    /// só por zoom/pan.</summary>
+    private SKBitmap? _composicaoNativaCache;
 
     public event EventHandler? DesenhoAlterado;
 
@@ -243,9 +260,26 @@ public sealed class PlantaCanvasView : SKCanvasView
     /// notificação de mudança (ex.: <see cref="ImagensPorCamada"/> é um Dictionary comum, mutado no
     /// lugar, sem INotifyCollectionChanged).
     /// </summary>
-    public void AtualizarPreview() => InvalidateSurface();
+    public void AtualizarPreview()
+    {
+        InvalidarComposicaoCache();
+        InvalidateSurface();
+    }
 
-    private void OnCamadasCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e) => InvalidateSurface();
+    private void OnCamadasCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        InvalidarComposicaoCache();
+        InvalidateSurface();
+    }
+
+    /// <summary>Descarta a composição cacheada (imagem base + camadas) — chamado sempre que o
+    /// conteúdo desenhado de fato muda (traço, camada, imagem base). Nunca chamado só por causa de
+    /// zoom/pan, que são transformações de visualização, não de conteúdo.</summary>
+    private void InvalidarComposicaoCache()
+    {
+        _composicaoNativaCache?.Dispose();
+        _composicaoNativaCache = null;
+    }
 
     /// <summary>Apaga (transparente) o bitmap da camada ativa, sem chamar a Api — só ao Salvar.</summary>
     public void LimparCamadaAtiva()
@@ -259,6 +293,7 @@ public sealed class PlantaCanvasView : SKCanvasView
         _historico.Clear();
         _desfeitas.Clear();
 
+        InvalidarComposicaoCache();
         DesenhoAlterado?.Invoke(this, EventArgs.Empty);
         InvalidateSurface();
     }
@@ -287,14 +322,153 @@ public sealed class PlantaCanvasView : SKCanvasView
         RedesenharDoHistorico();
     }
 
+    /// <summary>Texto ainda "solto" na tela — movível até o usuário confirmar, quando então é
+    /// desenhado (raster) na camada ativa igual a um traço normal. Coordenadas sempre na resolução
+    /// nativa da imagem base, mesmo espaço usado pelo restante do desenho.</summary>
+    private sealed class ElementoPendente
+    {
+        public required string Texto;
+        public string Cor = "#000000";
+        public float TamanhoFonte;
+        public SKRect Retangulo;
+        public float RotacaoGraus;
+    }
+
+    private ElementoPendente? _elementoPendente;
+    private SKPoint? _ultimoPontoElementoPendente;
+
+    public bool TemElementoPendente => _elementoPendente is not null;
+
+    /// <summary>Gira o texto pendente em passos de 90° (0/90/180/270) em torno do próprio ponto de
+    /// ancoragem — sem efeito se não houver elemento pendente.</summary>
+    public void RotacionarElementoPendente()
+    {
+        if (_elementoPendente is not { } pendente)
+            return;
+
+        pendente.RotacaoGraus = (pendente.RotacaoGraus + 90f) % 360f;
+        InvalidateSurface();
+    }
+
+    /// <summary>Começa a posicionar um texto — aparece "solto" (com moldura) no ponto tocado, pra
+    /// mover antes de confirmar. Ver <see cref="ConfirmarElementoPendente"/>.</summary>
+    public void IniciarTextoPendente(string texto, string cor, float tamanhoFonte, SKPoint posicaoInicial)
+    {
+        using var fonte = new SKFont(SKTypeface.Default, tamanhoFonte);
+        var largura = Math.Max(20f, fonte.MeasureText(texto));
+        var altura = tamanhoFonte * 1.3f;
+
+        _elementoPendente = new ElementoPendente
+        {
+            Texto = texto,
+            Cor = cor,
+            TamanhoFonte = tamanhoFonte,
+            Retangulo = new SKRect(posicaoInicial.X, posicaoInicial.Y - altura, posicaoInicial.X + largura, posicaoInicial.Y),
+        };
+        InvalidateSurface();
+    }
+
+    /// <summary>Desenha o texto pendente (na posição atual) na camada ativa, igual a um traço normal,
+    /// e encerra o modo de posicionamento.</summary>
+    public void ConfirmarElementoPendente()
+    {
+        if (_elementoPendente is not { } pendente)
+            return;
+
+        AdicionarTexto(
+            pendente.Texto, new SKPoint(pendente.Retangulo.Left, pendente.Retangulo.Bottom),
+            pendente.Cor, pendente.TamanhoFonte, pendente.RotacaoGraus);
+
+        _elementoPendente = null;
+        InvalidateSurface();
+    }
+
+    /// <summary>Descarta o elemento pendente sem desenhar nada na camada.</summary>
+    public void CancelarElementoPendente()
+    {
+        _elementoPendente = null;
+        _ultimoPontoElementoPendente = null;
+        InvalidateSurface();
+    }
+
+    private void DesenharElementoPendente(SKCanvas canvas, ElementoPendente pendente)
+    {
+        // Mesmo pivô (ponto de ancoragem, canto inferior esquerdo) usado na hora de confirmar — o
+        // preview aqui precisa bater exatamente com o resultado final desenhado em AdicionarTexto.
+        var pivo = new SKPoint(pendente.Retangulo.Left, pendente.Retangulo.Bottom);
+
+        canvas.Save();
+        if (pendente.RotacaoGraus != 0f)
+            canvas.RotateDegrees(pendente.RotacaoGraus, pivo.X, pivo.Y);
+
+        using var paintTexto = new SKPaint { IsAntialias = true, Color = SKColor.Parse(pendente.Cor) };
+        using var fonte = new SKFont(SKTypeface.Default, pendente.TamanhoFonte);
+        canvas.DrawText(pendente.Texto, pivo.X, pivo.Y, fonte, paintTexto);
+
+        // Espessura dividida pelo Zoom pra moldura ter sempre o mesmo tamanho na tela, independente
+        // do nível de zoom (o canvas já está escalado por Zoom neste ponto).
+        var escala = Math.Max(Zoom, 0.05f);
+        using var borda = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Stroke, StrokeWidth = 2f / escala, Color = SKColors.DeepSkyBlue };
+        canvas.DrawRect(pendente.Retangulo, borda);
+        canvas.Restore();
+    }
+
+    /// <summary>Toque enquanto há um elemento pendente: arrasta pra mover — nunca desenha na camada
+    /// nem aciona modo texto/pan enquanto está posicionando.</summary>
+    private void TratarTouchElementoPendente(ElementoPendente pendente, SKTouchEventArgs e)
+    {
+        var ponto = ConverterTelaParaNativo(e.Location);
+
+        switch (e.ActionType)
+        {
+            case SKTouchAction.Pressed:
+                // Mesmo que o toque caia um pouco fora da moldura exata (medida de texto imprecisa,
+                // dedo grosso), ainda tratamos como "pegar" o elemento — sem isto, um toque levemente
+                // fora do retângulo não iniciava o arrasto, dando a impressão de que ele "não é
+                // arrastável".
+                _ultimoPontoElementoPendente = ponto;
+
+                // Sem isto, o Android entende o arrasto do dedo como gesto de rolagem do ScrollView pai
+                // (PlantaScroll) a partir do primeiro Moved, e o elemento pendente trava no ponto
+                // inicial — mesmo problema (e mesma correção) já documentado no toque de desenho normal.
+                (Handler?.PlatformView as Android.Views.View)?.Parent?.RequestDisallowInterceptTouchEvent(true);
+                break;
+
+            case SKTouchAction.Moved when _ultimoPontoElementoPendente is { } ultimo:
+                var deslocX = ponto.X - ultimo.X;
+                var deslocY = ponto.Y - ultimo.Y;
+                pendente.Retangulo = SKRect.Create(
+                    pendente.Retangulo.Left + deslocX, pendente.Retangulo.Top + deslocY,
+                    pendente.Retangulo.Width, pendente.Retangulo.Height);
+                _ultimoPontoElementoPendente = ponto;
+                InvalidateSurface();
+                break;
+
+            case SKTouchAction.Released:
+            case SKTouchAction.Cancelled:
+                (Handler?.PlatformView as Android.Views.View)?.Parent?.RequestDisallowInterceptTouchEvent(false);
+                _ultimoPontoElementoPendente = null;
+                break;
+        }
+
+        e.Handled = true;
+    }
+
+    /// <summary>Converte um ponto em coordenadas de tela pra coordenadas nativas da imagem base —
+    /// mesma conta usada no início de <see cref="OnTouch"/>, extraída pra reuso pelo elemento pendente.</summary>
+    private SKPoint ConverterTelaParaNativo(SKPoint pontoTela) =>
+        UsarResolucaoNativa && Zoom > 0
+            ? new SKPoint((pontoTela.X - PanX) / Zoom, (pontoTela.Y - PanY) / Zoom)
+            : pontoTela;
+
     /// <summary>Escreve texto na camada ativa na posição indicada (coordenadas na resolução nativa
     /// da imagem base) — entra no histórico igual a um traço, pra poder desfazer.</summary>
-    public void AdicionarTexto(string texto, SKPoint posicao, string cor, float tamanhoFonte)
+    public void AdicionarTexto(string texto, SKPoint posicao, string cor, float tamanhoFonte, float rotacaoGraus = 0f)
     {
         if (CamadaAtivaId is not { } camadaId || ImagensPorCamada is null || string.IsNullOrWhiteSpace(texto))
             return;
 
-        var acao = new AcaoTexto(texto, posicao, cor, tamanhoFonte);
+        var acao = new AcaoTexto(texto, posicao, cor, tamanhoFonte, rotacaoGraus);
         var bitmap = ObterOuCriarBitmapDaCamada(camadaId);
         using (var canvas = new SKCanvas(bitmap))
             DesenharAcao(canvas, acao);
@@ -302,6 +476,7 @@ public sealed class PlantaCanvasView : SKCanvasView
         _historico.Add(acao);
         _desfeitas.Clear();
 
+        InvalidarComposicaoCache();
         DesenhoAlterado?.Invoke(this, EventArgs.Empty);
         InvalidateSurface();
     }
@@ -317,6 +492,7 @@ public sealed class PlantaCanvasView : SKCanvasView
         foreach (var acao in _historico)
             DesenharAcao(canvas, acao);
 
+        InvalidarComposicaoCache();
         DesenhoAlterado?.Invoke(this, EventArgs.Empty);
         InvalidateSurface();
     }
@@ -331,7 +507,22 @@ public sealed class PlantaCanvasView : SKCanvasView
             case AcaoTexto texto:
                 using (var paint = new SKPaint { IsAntialias = true, Color = SKColor.Parse(texto.Cor) })
                 using (var fonte = new SKFont(SKTypeface.Default, texto.TamanhoFonte))
-                    canvas.DrawText(texto.Texto, texto.Posicao.X, texto.Posicao.Y, fonte, paint);
+                {
+                    if (texto.RotacaoGraus == 0f)
+                    {
+                        canvas.DrawText(texto.Texto, texto.Posicao.X, texto.Posicao.Y, fonte, paint);
+                    }
+                    else
+                    {
+                        // Rotaciona em torno do próprio ponto de ancoragem (base do texto) — mesmo
+                        // pivô usado no preview do elemento pendente, pra o resultado final bater
+                        // exatamente com o que o usuário viu antes de confirmar.
+                        canvas.Save();
+                        canvas.RotateDegrees(texto.RotacaoGraus, texto.Posicao.X, texto.Posicao.Y);
+                        canvas.DrawText(texto.Texto, texto.Posicao.X, texto.Posicao.Y, fonte, paint);
+                        canvas.Restore();
+                    }
+                }
                 break;
         }
     }
@@ -349,19 +540,48 @@ public sealed class PlantaCanvasView : SKCanvasView
             Color = traco.Apagar ? SKColors.Transparent : SKColor.Parse(traco.Cor),
         };
 
-        if (traco.Pontos.Count == 1)
+        var pontos = traco.Pontos;
+        if (pontos.Count == 1)
         {
-            canvas.DrawCircle(traco.Pontos[0], traco.Espessura / 2, paint);
+            canvas.DrawCircle(pontos[0], traco.Espessura / 2, paint);
             return;
         }
 
-        for (var i = 1; i < traco.Pontos.Count; i++)
-            canvas.DrawLine(traco.Pontos[i - 1], traco.Pontos[i], paint);
+        if (pontos.Count == 2)
+        {
+            canvas.DrawLine(pontos[0], pontos[1], paint);
+            return;
+        }
+
+        // Curva suave: cada trecho é uma Bézier quadrática entre os pontos médios de dois pontos
+        // capturados consecutivos, usando o ponto entre eles como controle — em vez de conectar os
+        // pontos crus com retas, que deixava o traço visivelmente anguloso em curvas rápidas do dedo
+        // (o toque não amostra pontos infinitamente próximos; bug reportado: "desenho livre não faz
+        // curvas"). Mesma técnica usada ao vivo em OnTouch, pra redesenho do histórico (desfazer/
+        // refazer/recarregar) bater com o que foi desenhado na hora.
+        using var caminho = new SKPath();
+        caminho.MoveTo(pontos[0]);
+        for (var i = 1; i < pontos.Count - 1; i++)
+        {
+            var pontoMedio = new SKPoint((pontos[i].X + pontos[i + 1].X) / 2f, (pontos[i].Y + pontos[i + 1].Y) / 2f);
+            caminho.QuadTo(pontos[i], pontoMedio);
+        }
+        caminho.LineTo(pontos[^1]);
+        canvas.DrawPath(caminho, paint);
     }
 
     protected override void OnPaintSurface(SKPaintSurfaceEventArgs e)
     {
         base.OnPaintSurface(e);
+
+        // Durante transições de foco/layout (teclado abrindo, hover da caneta, fragment sendo
+        // recriado) o Android pode colapsar a view pra 0x0 por um instante antes de estabilizar no
+        // tamanho final. Sem este guard, ObterImagemBaseEscalada chamava ImagemBase.Resize com
+        // destino 0x0, que gera um SKBitmap com buffer de pixels inválido — e o DrawBitmap seguinte
+        // crasha nativamente dentro do SkiaSharp (sk_image_new_from_bitmap, null pointer dereference)
+        // ao tentar empacotar esse bitmap como SKImage. Ver captura_log4.txt / CRASH_ANALISE.
+        if (e.Info.Width <= 0 || e.Info.Height <= 0)
+            return;
 
         var canvas = e.Surface.Canvas;
         canvas.Clear(SKColors.White);
@@ -372,14 +592,21 @@ public sealed class PlantaCanvasView : SKCanvasView
         {
             // Desenha tudo em resolução nativa e deixa a transformação do canvas escalar — mantém a
             // planta base e o traço de cada camada alinhados entre si em qualquer nível de zoom, ao
-            // contrário de redimensionar cada bitmap individualmente.
+            // contrário de redimensionar cada bitmap individualmente. A composição em si (imagem base
+            // + camadas) vem cacheada de ObterComposicaoNativa — um único DrawBitmap por frame em vez
+            // de um por camada, senão mexer no zoom/pan (que chama InvalidateSurface a cada pixel de
+            // arrasto) refazia a composição inteira nesse ritmo, travando em aparelhos mais fracos.
             canvas.Save();
             canvas.Translate(PanX, PanY);
             canvas.Scale(Zoom);
-            if (Camadas is { Count: > 0 } camadasComZoom)
-                PlantaOverlayRenderer.Desenhar(canvas, camadasComZoom, ImagemBase, imagensPorCamada);
-            else
-                canvas.DrawBitmap(ImagemBase, 0, 0);
+
+            var composicao = ObterComposicaoNativa(imagensPorCamada);
+            if (composicao is not null && PlantaOverlayRenderer.PodeDesenhar(composicao))
+                canvas.DrawBitmap(composicao, 0, 0);
+
+            if (_elementoPendente is { } pendente)
+                DesenharElementoPendente(canvas, pendente);
+
             canvas.Restore();
             return;
         }
@@ -388,13 +615,40 @@ public sealed class PlantaCanvasView : SKCanvasView
 
         if (Camadas is { Count: > 0 } camadas)
             PlantaOverlayRenderer.Desenhar(canvas, camadas, imagemBaseEscalada, imagensPorCamada);
-        else if (imagemBaseEscalada is not null)
+        else if (PlantaOverlayRenderer.PodeDesenhar(imagemBaseEscalada))
             canvas.DrawBitmap(imagemBaseEscalada, 0, 0);
+    }
+
+    /// <summary>Reaproveita a composição cacheada (ver <see cref="_composicaoNativaCache"/>) se ainda
+    /// bater com o tamanho da imagem base, senão desenha tudo de novo uma única vez. Só é invalidada
+    /// explicitamente (<see cref="InvalidarComposicaoCache"/>) quando o conteúdo muda de verdade —
+    /// aqui só checamos o tamanho como salvaguarda (ex.: imagem base trocada por outra do mesmo
+    /// tamanho, caso a invalidação explícita falhe em algum caminho).</summary>
+    private SKBitmap? ObterComposicaoNativa(IReadOnlyDictionary<Guid, SKBitmap>? imagensPorCamada)
+    {
+        if (ImagemBase is not { } imagemBase || !PlantaOverlayRenderer.PodeDesenhar(imagemBase))
+            return null;
+
+        if (_composicaoNativaCache is { } cache && cache.Width == imagemBase.Width && cache.Height == imagemBase.Height)
+            return cache;
+
+        _composicaoNativaCache?.Dispose();
+        var composicao = new SKBitmap(imagemBase.Width, imagemBase.Height);
+        using (var canvasComposicao = new SKCanvas(composicao))
+        {
+            if (Camadas is { Count: > 0 } camadas)
+                PlantaOverlayRenderer.Desenhar(canvasComposicao, camadas, imagemBase, imagensPorCamada);
+            else
+                canvasComposicao.DrawBitmap(imagemBase, 0, 0);
+        }
+
+        _composicaoNativaCache = composicao;
+        return composicao;
     }
 
     private SKBitmap? ObterImagemBaseEscalada(SKImageInfo info)
     {
-        if (ImagemBase is null)
+        if (ImagemBase is null || info.Width <= 0 || info.Height <= 0)
             return null;
 
         var tamanhoAlvo = new SKSizeI(info.Width, info.Height);
@@ -411,6 +665,14 @@ public sealed class PlantaCanvasView : SKCanvasView
     {
         if (e.ActionType is not (SKTouchAction.Pressed or SKTouchAction.Moved or SKTouchAction.Released or SKTouchAction.Cancelled))
             return;
+
+        // Elemento pendente (texto/imagem sendo posicionado) tem prioridade total sobre qualquer
+        // outro modo — nunca desenha na camada nem aciona pan/texto enquanto está sendo posicionado.
+        if (_elementoPendente is { } pendente)
+        {
+            TratarTouchElementoPendente(pendente, e);
+            return;
+        }
 
         // Modo pan explícito (ícone na barra de ferramentas, ver CamadaEdicaoPage) — separado do
         // desenho de propósito: sem ScrollView ao redor do canvas (competia com o próprio gesto de
@@ -436,9 +698,7 @@ public sealed class PlantaCanvasView : SKCanvasView
         // pelo WidthRequest/HeightRequest da Page) — precisa descontar o Pan e dividir por Zoom pra
         // achar o ponto correspondente no bitmap nativo da camada, senão o traço fica na
         // posição/escala erradas.
-        var ponto = UsarResolucaoNativa && Zoom > 0
-            ? new SKPoint((e.Location.X - PanX) / Zoom, (e.Location.Y - PanY) / Zoom)
-            : e.Location;
+        var ponto = ConverterTelaParaNativo(e.Location);
 
         if (ModoTexto)
         {
@@ -472,22 +732,50 @@ public sealed class PlantaCanvasView : SKCanvasView
                 (Handler?.PlatformView as Android.Views.View)?.Parent?.RequestDisallowInterceptTouchEvent(true);
                 canvasBitmap.DrawCircle(ponto, EspessuraTraco / 2, paint);
                 _ultimoPontoToque = ponto;
+                _penultimoPontoToque = null;
                 _tracoEmAndamento = new AcaoTraco([ponto], CorTraco, EspessuraTraco, ModoApagar);
                 _desfeitas.Clear();
                 break;
             case SKTouchAction.Moved when _ultimoPontoToque is { } ultimo:
-                canvasBitmap.DrawLine(ultimo, ponto, paint);
+                if (_penultimoPontoToque is { } penultimo)
+                {
+                    // Curva suave: desenha do ponto médio(penúltimo, último) até o ponto médio(último,
+                    // atual), usando "último" como ponto de controle — em vez da reta direta
+                    // último→atual, que deixava o traço anguloso em curvas rápidas (mesma técnica de
+                    // DesenharTraco, usada ali sobre a lista inteira ao redesenhar do histórico).
+                    var inicio = new SKPoint((penultimo.X + ultimo.X) / 2f, (penultimo.Y + ultimo.Y) / 2f);
+                    var fim = new SKPoint((ultimo.X + ponto.X) / 2f, (ultimo.Y + ponto.Y) / 2f);
+                    using var caminho = new SKPath();
+                    caminho.MoveTo(inicio);
+                    caminho.QuadTo(ultimo, fim);
+                    canvasBitmap.DrawPath(caminho, paint);
+                }
+                else
+                {
+                    canvasBitmap.DrawLine(ultimo, ponto, paint);
+                }
+                _penultimoPontoToque = ultimo;
                 _ultimoPontoToque = ponto;
                 _tracoEmAndamento?.Pontos.Add(ponto);
+                InvalidarComposicaoCache();
                 break;
             case SKTouchAction.Released:
                 (Handler?.PlatformView as Android.Views.View)?.Parent?.RequestDisallowInterceptTouchEvent(false);
+                // Fecha o último trecho (do meio do penúltimo segmento até o ponto final solto) —
+                // sem isto, a suavização por pontos médios deixa a pontinha final do traço de fora.
+                if (_penultimoPontoToque is { } penultimoFinal && _ultimoPontoToque is { } ultimoFinal)
+                {
+                    var inicioFinal = new SKPoint((penultimoFinal.X + ultimoFinal.X) / 2f, (penultimoFinal.Y + ultimoFinal.Y) / 2f);
+                    canvasBitmap.DrawLine(inicioFinal, ultimoFinal, paint);
+                }
                 _ultimoPontoToque = null;
+                _penultimoPontoToque = null;
                 if (_tracoEmAndamento is not null)
                 {
                     _historico.Add(_tracoEmAndamento);
                     _tracoEmAndamento = null;
                 }
+                InvalidarComposicaoCache();
                 DesenhoAlterado?.Invoke(this, EventArgs.Empty);
                 break;
         }
@@ -534,7 +822,7 @@ public sealed class PlantaCanvasView : SKCanvasView
         using (var canvasNovo = new SKCanvas(novo))
         {
             canvasNovo.Clear(SKColors.Transparent);
-            if (existente is not null)
+            if (PlantaOverlayRenderer.PodeDesenhar(existente))
                 canvasNovo.DrawBitmap(existente, new SKRect(0, 0, largura, altura));
         }
 

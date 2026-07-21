@@ -4,7 +4,7 @@
 		<!-- Só Android: é o único dispositivo alvo pedido (app roda na intranet da empresa via
 		     Wi-Fi/VPN corporativa) — evita depender dos workloads/toolchains de iOS/MacCatalyst/
 		     Windows, que exigiriam um Mac pareado ou SDKs adicionais não usados neste projeto. -->
-		<TargetFrameworks>net8.0-android</TargetFrameworks>
+		<TargetFrameworks>net9.0-android</TargetFrameworks>
 
 		<OutputType>Exe</OutputType>
 		<RootNamespace>Camdas.Mobile</RootNamespace>
@@ -25,7 +25,7 @@
 		     por esquecimento. ApplicationVersion (versionCode do Android) continua manual: é um
 		     contador do Android, sem relação com o número semântico de versão. -->
 		<ApplicationDisplayVersion>$([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)..\..\VERSION').Trim())</ApplicationDisplayVersion>
-		<ApplicationVersion>5</ApplicationVersion>
+		<ApplicationVersion>6</ApplicationVersion>
 
 		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">21.0</SupportedOSPlatformVersion>
 	</PropertyGroup>
@@ -49,10 +49,13 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
-		<PackageReference Include="Microsoft.Maui.Controls.Compatibility" Version="$(MauiVersion)" />
+		<!-- Versão fixa (não $(MauiVersion), que resolve pro manifesto do workload — 9.0.0 — mais
+		     antigo que o mínimo exigido pelo SkiaSharp.Views.Maui.Controls 3.x, causando erro de
+		     downgrade de pacote). -->
+		<PackageReference Include="Microsoft.Maui.Controls" Version="9.0.120" />
+		<PackageReference Include="Microsoft.Maui.Controls.Compatibility" Version="9.0.120" />
 		<PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="8.0.1" />
-		<PackageReference Include="SkiaSharp.Views.Maui.Controls" Version="2.88.9" />
+		<PackageReference Include="SkiaSharp.Views.Maui.Controls" Version="3.119.4" />
 		<PackageReference Include="CommunityToolkit.Mvvm" Version="8.3.2" />
 		<PackageReference Include="Microsoft.Extensions.Http" Version="8.0.1" />
 	</ItemGroup>
