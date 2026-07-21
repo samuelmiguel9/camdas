@@ -23,6 +23,14 @@ public partial class CamadaEdicaoPage : ContentPage
         // Auto-salva um rascunho local a cada alteração (traço solto, texto, desfazer/refazer,
         // limpar) — não perde o trabalho se o app fechar antes de "Salvar camada" mandar pro servidor.
         Canvas.DesenhoAlterado += async (_, _) => await _viewModel.SalvarRascunhoAsync();
+
+        // Padrão pedido pelo usuário: sem nenhum botão apertado, o toque ajusta a visualização
+        // (arrastar/pinça) — só desenha quando o lápis (BotaoDesenhar) está aceso. Antes era o
+        // contrário (Canvas.ModoPan = false por padrão, precisava apertar a mão pra mexer na
+        // visualização), o que confundia porque um toque acidental já rabiscava a camada. Só afeta
+        // esta página — o valor padrão do BindableProperty em si continua false, porque PlantaPage
+        // usa o mesmo Canvas com outra semântica (ScrollView próprio + edição inline).
+        Canvas.ModoPan = true;
     }
 
     protected override async void OnAppearing()
@@ -96,34 +104,43 @@ public partial class CamadaEdicaoPage : ContentPage
 
     /// <summary>Alterna o "modo texto": enquanto ligado, tocar no canvas não desenha, dispara
     /// <see cref="PlantaCanvasView.SolicitarTexto"/> — o próprio botão fica destacado (fundo escuro)
-    /// pra indicar que está ativo, já que não há cursor/indicador visual do modo no canvas.</summary>
+    /// pra indicar que está ativo, já que não há cursor/indicador visual do modo no canvas. Ativar
+    /// texto sempre desliga o pan (Canvas.ModoPan = false) — senão o toque nunca chegaria em
+    /// <see cref="PlantaCanvasView.OnTouch"/>: o Canvas confere ModoPan antes de ModoTexto.</summary>
     private void OnAlternarModoTextoClicked(object? sender, EventArgs e)
     {
         Canvas.ModoTexto = !Canvas.ModoTexto;
+        Canvas.ModoPan = !Canvas.ModoTexto;
         AtualizarDestaqueBotao(BotaoTexto, Canvas.ModoTexto);
-
-        // Texto e pan são mutuamente exclusivos com o desenho — ligar um desliga o outro, senão os
-        // dois "modos especiais" ficam competindo pelo mesmo toque.
-        if (Canvas.ModoTexto && Canvas.ModoPan)
-        {
-            Canvas.ModoPan = false;
-            AtualizarDestaqueBotao(BotaoPan, false);
-        }
+        AtualizarDestaqueBotao(BotaoDesenhar, false);
     }
 
-    /// <summary>Alterna o "modo pan": enquanto ligado, arrastar o dedo move a visualização
-    /// (Canvas.PanX/PanY) em vez de desenhar — separa por completo o gesto de ajustar zoom/posição do
-    /// gesto de desenhar, sem depender de heurística de "quantos dedos" nem de ScrollView.</summary>
-    private void OnAlternarModoPanClicked(object? sender, EventArgs e)
+    /// <summary>Alterna o "modo desenhar" (lápis): ligado, o toque desenha na camada ativa; desligado
+    /// (padrão), o toque ajusta a visualização (arrastar com um dedo — GerenciarPan em
+    /// PlantaCanvasView — ou pinça com dois, ver <see cref="OnPinchUpdated"/>). Internamente é só o
+    /// inverso de Canvas.ModoPan: desenhar ligado == ModoPan desligado.</summary>
+    private void OnAlternarModoDesenharClicked(object? sender, EventArgs e)
     {
         Canvas.ModoPan = !Canvas.ModoPan;
-        AtualizarDestaqueBotao(BotaoPan, Canvas.ModoPan);
+        var desenhoAtivo = !Canvas.ModoPan;
+        AtualizarDestaqueBotao(BotaoDesenhar, desenhoAtivo);
 
-        if (Canvas.ModoPan && Canvas.ModoTexto)
+        if (desenhoAtivo && Canvas.ModoTexto)
         {
             Canvas.ModoTexto = false;
             AtualizarDestaqueBotao(BotaoTexto, false);
         }
+    }
+
+    /// <summary>Zoom por pinça (dois dedos) — pedido do usuário como alternativa ao slider/botões
+    /// +/−. Funciona em qualquer momento (mesmo com o lápis aceso): como o PinchGestureRecognizer é
+    /// reconhecido pelo MAUI a partir de dois ponteiros simultâneos, e o toque de desenho em
+    /// PlantaCanvasView só acompanha o primeiro ponteiro, colocar um segundo dedo na tela naturalmente
+    /// para de "desenhar" (o gesto de pinça assume) sem precisar de nenhuma flag extra.</summary>
+    private void OnPinchUpdated(object? sender, PinchGestureUpdatedEventArgs e)
+    {
+        if (e.Status == GestureStatus.Running && e.Scale > 0)
+            AtualizarZoom(Canvas.Zoom * (float)e.Scale);
     }
 
     private static void AtualizarDestaqueBotao(Button botao, bool ativo)
@@ -137,8 +154,11 @@ public partial class CamadaEdicaoPage : ContentPage
         var texto = await DisplayPromptAsync("Adicionar texto", "Escreva o texto:");
 
         // Sai do modo texto depois de um toque, mesmo se cancelar — evita o usuário ficar "preso"
-        // sem conseguir voltar a desenhar sem notar que o modo continua ligado.
+        // sem conseguir voltar a mexer na visualização sem notar que o modo continua ligado. Volta
+        // pro padrão (ajuste/pan), não pro desenho — mesmo comportamento de desligar o modo texto
+        // manualmente.
         Canvas.ModoTexto = false;
+        Canvas.ModoPan = true;
         AtualizarDestaqueBotao(BotaoTexto, false);
 
         if (string.IsNullOrWhiteSpace(texto))

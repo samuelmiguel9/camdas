@@ -36,8 +36,15 @@
              cortada. -->
         <!-- Orientation="Both" na visualização (rolar a planta com zoom). No modo de edição o
              code-behind troca pra "Neither" — desenhar dentro de um ScrollView faz o arrasto virar
-             rolagem; lá o deslocamento vira o modo pan explícito (✋), igual à edição isolada. -->
+             rolagem; lá o deslocamento vira o modo pan por padrão (toque no lápis ✏️ liga o desenho),
+             igual à edição isolada. PinchGestureRecognizer dá zoom com dois dedos durante a edição —
+             só ativo nesse modo (OnPinchUpdated confere ModoEdicao) pra não interferir com o próprio
+             gesto de zoom por pinça nativo que ScrollView com Orientation="Both" já poderia oferecer
+             fora da edição. -->
         <ScrollView x:Name="PlantaScroll" Grid.Row="2" Orientation="Both">
+            <ScrollView.GestureRecognizers>
+                <PinchGestureRecognizer PinchUpdated="OnPinchUpdated" />
+            </ScrollView.GestureRecognizers>
             <views:PlantaCanvasView
                 x:Name="Canvas"
                 Camadas="{Binding Camadas}"
@@ -78,8 +85,8 @@
                     <BoxView WidthRequest="1" HeightRequest="24" Color="#D8D0C0" />
                     <Button x:Name="BotaoTexto" Text="T" FontSize="18" FontAttributes="Bold" Padding="8,0"
                             BackgroundColor="Transparent" TextColor="#333" Clicked="OnAlternarModoTextoClicked" />
-                    <Button x:Name="BotaoPan" Text="✋" FontSize="18" Padding="8,0"
-                            BackgroundColor="Transparent" TextColor="#333" Clicked="OnAlternarModoPanClicked" />
+                    <Button x:Name="BotaoDesenhar" Text="✏️" FontSize="18" Padding="8,0"
+                            BackgroundColor="Transparent" TextColor="#333" Clicked="OnAlternarModoDesenharClicked" />
                     <ImageButton x:Name="BotaoBorracha" Source="eraser.png" WidthRequest="28" HeightRequest="28"
                                  Padding="4" BackgroundColor="Transparent" Clicked="OnAlternarBorrachaClicked" />
                     <BoxView WidthRequest="1" HeightRequest="24" Color="#D8D0C0" />
@@ -119,6 +126,8 @@
                    FontSize="12" TextColor="#333" HorizontalOptions="Center" />
             <HorizontalStackLayout Spacing="10" HorizontalOptions="Center">
                 <Button Text="↻ Girar 90°" Clicked="OnRotacionarElementoPendenteClicked" />
+                <Button Text="A-" WidthRequest="44" Clicked="OnDiminuirTamanhoElementoPendenteClicked" />
+                <Button Text="A+" WidthRequest="44" Clicked="OnAumentarTamanhoElementoPendenteClicked" />
                 <Button Text="✓ Confirmar" BackgroundColor="#2ECC71" TextColor="White" Clicked="OnConfirmarElementoPendenteClicked" />
                 <Button Text="✕ Cancelar" BackgroundColor="#E74C3C" TextColor="White" Clicked="OnCancelarElementoPendenteClicked" />
             </HorizontalStackLayout>

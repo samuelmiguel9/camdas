@@ -97,15 +97,19 @@ public partial class PlantaPage : ContentPage
             AplicarModoEdicaoUi();
     }
 
-    /// <summary>Reconfigura a tela ao alternar edição/visualização: desliga os sub-modos (texto/pan/
-    /// borracha), troca a rolagem do ScrollView (desenhar dentro dele viraria rolagem) e reaplica o
-    /// zoom no layout correspondente (inflar+rolar na visualização; transform interno na edição).</summary>
+    /// <summary>Reconfigura a tela ao alternar edição/visualização: desliga os sub-modos (texto/
+    /// desenhar/borracha), troca a rolagem do ScrollView (desenhar dentro dele viraria rolagem) e
+    /// reaplica o zoom no layout correspondente (inflar+rolar na visualização; transform interno na
+    /// edição). Canvas.ModoPan entra ligado (ajuste/pinça por padrão, pedido do usuário) só ao ENTRAR
+    /// na edição — ao sair, volta pra false, porque fora da edição quem manda no arrasto é o
+    /// ScrollView nativo (Orientation="Both"); deixar ModoPan ligado ali interceptaria o toque antes
+    /// da rolagem nativa acontecer.</summary>
     private void AplicarModoEdicaoUi()
     {
         Canvas.ModoTexto = false;
-        Canvas.ModoPan = false;
+        Canvas.ModoPan = _viewModel.ModoEdicao;
         AtualizarDestaqueBotao(BotaoTexto, false);
-        AtualizarDestaqueBotao(BotaoPan, false);
+        AtualizarDestaqueBotao(BotaoDesenhar, false);
         AtualizarDestaqueBorracha(false);
 
         PlantaScroll.Orientation = _viewModel.ModoEdicao ? ScrollOrientation.Neither : ScrollOrientation.Both;
@@ -385,31 +389,88 @@ public partial class PlantaPage : ContentPage
     }
 
     /// <summary>Alterna o "modo texto": tocar no canvas dispara <see cref="PlantaCanvasView.SolicitarTexto"/>
-    /// em vez de desenhar; o botão fica destacado enquanto ativo.</summary>
+    /// em vez de desenhar; o botão fica destacado enquanto ativo. Ativar texto sempre desliga o pan
+    /// (Canvas.ModoPan = false) — senão o toque nunca chegaria em PlantaCanvasView.OnTouch, que confere
+    /// ModoPan antes de ModoTexto.</summary>
     private void OnAlternarModoTextoClicked(object? sender, EventArgs e)
     {
         Canvas.ModoTexto = !Canvas.ModoTexto;
+        Canvas.ModoPan = !Canvas.ModoTexto;
         AtualizarDestaqueBotao(BotaoTexto, Canvas.ModoTexto);
-
-        if (Canvas.ModoTexto && Canvas.ModoPan)
-        {
-            Canvas.ModoPan = false;
-            AtualizarDestaqueBotao(BotaoPan, false);
-        }
+        AtualizarDestaqueBotao(BotaoDesenhar, false);
     }
 
-    /// <summary>Alterna o "modo pan": arrastar move a visualização (Canvas.PanX/PanY) em vez de
-    /// desenhar — necessário aqui porque a rolagem do ScrollView fica desligada durante a edição.</summary>
-    private void OnAlternarModoPanClicked(object? sender, EventArgs e)
+    /// <summary>Alterna o "modo desenhar" (lápis): ligado, o toque desenha na camada ativa; desligado
+    /// (padrão ao entrar na edição), o toque ajusta a visualização — arrastar com um dedo ou pinça com
+    /// dois (<see cref="OnPinchUpdated"/>). Necessário aqui porque a rolagem do ScrollView fica
+    /// desligada durante a edição. Internamente é só o inverso de Canvas.ModoPan.</summary>
+    private void OnAlternarModoDesenharClicked(object? sender, EventArgs e)
     {
         Canvas.ModoPan = !Canvas.ModoPan;
-        AtualizarDestaqueBotao(BotaoPan, Canvas.ModoPan);
+        var desenhoAtivo = !Canvas.ModoPan;
+        AtualizarDestaqueBotao(BotaoDesenhar, desenhoAtivo);
 
-        if (Canvas.ModoPan && Canvas.ModoTexto)
+        if (desenhoAtivo && Canvas.ModoTexto)
         {
             Canvas.ModoTexto = false;
             AtualizarDestaqueBotao(BotaoTexto, false);
         }
+    }
+
+    /// <summary>Zoom por pinça (dois dedos) durante a edição — só age com ModoEdicao ligado, pra não
+    /// interferir em nada fora da edição (fora dela quem cuida do zoom/rolagem é o ScrollView nativo).
+    /// Canvas.EmGestoDePinca fica ligado do Started ao Completed/Canceled — enquanto isso, o toque de
+    /// um dedo só (GerenciarPan) é ignorado no Canvas, senão os dois sistemas de gesto brigavam pela
+    /// mesma sequência de toque (bug reportado: "solta no meio do caminho" durante a pinça).</summary>
+    private void OnPinchUpdated(object? sender, PinchGestureUpdatedEventArgs e)
+    {
+        if (!_viewModel.ModoEdicao)
+            return;
+
+        switch (e.Status)
+        {
+            case GestureStatus.Started:
+                Canvas.EmGestoDePinca = true;
+                break;
+            case GestureStatus.Running when e.Scale > 0:
+                AtualizarZoomPinca((float)e.Scale, e.ScaleOrigin);
+                break;
+            case GestureStatus.Completed:
+            case GestureStatus.Canceled:
+                Canvas.EmGestoDePinca = false;
+                break;
+        }
+    }
+
+    /// <summary>Ajusta o Zoom durante a pinça mantendo o ponto sob os dedos fixo na tela (ancora em
+    /// e.ScaleOrigin, relativo 0..1 da área do Canvas) — ao contrário de AtualizarZoom (usado pelos
+    /// botões/slider), NÃO reseta PanX/PanY: resetar a cada evento de pinça (que dispara várias vezes
+    /// por segundo) fazia a visualização "saltar" de volta pra um ponto fixo a cada atualização,
+    /// impedindo qualquer ajuste (bug reportado: "vai pra um ponto fixo da planta, não consigo
+    /// ajustar"). A conta é a de zoom-em-torno-de-um-ponto padrão: acha o ponto do conteúdo (native)
+    /// sob os dedos com o zoom antigo, e desloca o Pan pra esse mesmo ponto continuar sob os dedos com
+    /// o zoom novo.</summary>
+    private void AtualizarZoomPinca(float fatorEscala, Point origemRelativa)
+    {
+        if (_viewModel.ImagemBase is null || Canvas.Width <= 0 || Canvas.Height <= 0)
+            return;
+
+        var zoomAntigo = Canvas.Zoom;
+        var novoZoom = Math.Clamp(zoomAntigo * fatorEscala, (float)ZoomSlider.Minimum, (float)ZoomSlider.Maximum);
+        if (novoZoom == zoomAntigo)
+            return;
+
+        var pontoTelaX = (float)(origemRelativa.X * Canvas.Width);
+        var pontoTelaY = (float)(origemRelativa.Y * Canvas.Height);
+        var pontoConteudoX = (pontoTelaX - Canvas.PanX) / zoomAntigo;
+        var pontoConteudoY = (pontoTelaY - Canvas.PanY) / zoomAntigo;
+
+        Canvas.PanX += pontoConteudoX * (zoomAntigo - novoZoom);
+        Canvas.PanY += pontoConteudoY * (zoomAntigo - novoZoom);
+        Canvas.Zoom = novoZoom;
+
+        ZoomSlider.Value = novoZoom;
+        ZoomLabel.Text = $"{(int)Math.Round(novoZoom * 100)}%";
     }
 
     /// <summary>Alterna a borracha (apaga em vez de pintar). Como ela desenha, desliga texto/pan pra
@@ -424,7 +485,7 @@ public partial class PlantaPage : ContentPage
             Canvas.ModoTexto = false;
             Canvas.ModoPan = false;
             AtualizarDestaqueBotao(BotaoTexto, false);
-            AtualizarDestaqueBotao(BotaoPan, false);
+            AtualizarDestaqueBotao(BotaoDesenhar, false);
         }
     }
 
@@ -446,6 +507,11 @@ public partial class PlantaPage : ContentPage
         var texto = await DisplayPromptAsync("Adicionar texto", "Escreva o texto:");
 
         Canvas.ModoTexto = false;
+        // Volta pro padrão (ajuste/pan) — enquanto o elemento fica pendente isso não importa (o
+        // toque vai todo pro arrasto de posicionamento, PlantaCanvasView.OnTouch confere elemento
+        // pendente antes de tudo), mas cobre também o caso de cancelar o prompt (string vazia) sem
+        // nunca chegar a mostrar a barra de posicionamento.
+        Canvas.ModoPan = true;
         AtualizarDestaqueBotao(BotaoTexto, false);
 
         if (string.IsNullOrWhiteSpace(texto))
@@ -468,6 +534,10 @@ public partial class PlantaPage : ContentPage
     }
 
     private void OnRotacionarElementoPendenteClicked(object? sender, EventArgs e) => Canvas.RotacionarElementoPendente();
+
+    private void OnAumentarTamanhoElementoPendenteClicked(object? sender, EventArgs e) => Canvas.RedimensionarElementoPendente(4f);
+
+    private void OnDiminuirTamanhoElementoPendenteClicked(object? sender, EventArgs e) => Canvas.RedimensionarElementoPendente(-4f);
 
     private void OnConfirmarElementoPendenteClicked(object? sender, EventArgs e)
     {

@@ -139,6 +139,7 @@ public sealed class PlantaCanvasView : SKCanvasView
     private SKPoint? _ultimoPontoToque;
     private SKPoint? _penultimoPontoToque;
     private SKPoint? _ultimoPontoPan;
+    private long? _idPonteiroPan;
 
     /// <summary>Composição (imagem base + camadas visíveis) pré-renderizada num único bitmap, usada
     /// só quando <see cref="UsarResolucaoNativa"/> é true. Sem isto, mexer no zoom/pan da
@@ -255,6 +256,14 @@ public sealed class PlantaCanvasView : SKCanvasView
         set => SetValue(ModoPanProperty, value);
     }
 
+    /// <summary>Setado pela Page enquanto um PinchGestureRecognizer nativo (dois dedos) está em
+    /// andamento — enquanto true, o toque de um dedo só (<see cref="GerenciarPan"/>) é ignorado por
+    /// completo. Sem isto, os dois sistemas de gesto (o toque bruto do SkiaSharp e o
+    /// PinchGestureRecognizer do MAUI, que competem pela mesma sequência de toque) brigavam entre si
+    /// durante a pinça, fazendo a visualização "piscar"/travar no meio do gesto (bug reportado: "solta
+    /// no meio do caminho").</summary>
+    public bool EmGestoDePinca { get; set; }
+
     /// <summary>
     /// Força o redesenho — usado pela Page depois de recarregar dados que não disparam sozinhos uma
     /// notificação de mudança (ex.: <see cref="ImagensPorCamada"/> é um Dictionary comum, mutado no
@@ -347,6 +356,33 @@ public sealed class PlantaCanvasView : SKCanvasView
             return;
 
         pendente.RotacaoGraus = (pendente.RotacaoGraus + 90f) % 360f;
+        InvalidateSurface();
+    }
+
+    private const float TamanhoFontePendenteMinimo = 8f;
+    private const float TamanhoFontePendenteMaximo = 300f;
+
+    /// <summary>Aumenta/diminui o tamanho da fonte do texto pendente (delta em pontos, negativo
+    /// diminui) — mesma ideia do girar: só afeta o elemento ainda solto, antes de confirmar. Mantém o
+    /// ponto de ancoragem (canto inferior esquerdo do retângulo, o mesmo usado por
+    /// <see cref="ConfirmarElementoPendente"/> e no desenho final) fixo — só a largura/altura da
+    /// moldura crescem/encolhem a partir dele, senão o texto "pularia" de posição a cada ajuste.</summary>
+    public void RedimensionarElementoPendente(float deltaPontos)
+    {
+        if (_elementoPendente is not { } pendente)
+            return;
+
+        var novoTamanho = Math.Clamp(pendente.TamanhoFonte + deltaPontos, TamanhoFontePendenteMinimo, TamanhoFontePendenteMaximo);
+        if (novoTamanho == pendente.TamanhoFonte)
+            return;
+
+        var ancora = new SKPoint(pendente.Retangulo.Left, pendente.Retangulo.Bottom);
+        using var fonte = new SKFont(SKTypeface.Default, novoTamanho);
+        var largura = Math.Max(20f, fonte.MeasureText(pendente.Texto));
+        var altura = novoTamanho * 1.3f;
+
+        pendente.TamanhoFonte = novoTamanho;
+        pendente.Retangulo = new SKRect(ancora.X, ancora.Y - altura, ancora.X + largura, ancora.Y);
         InvalidateSurface();
     }
 
@@ -677,10 +713,13 @@ public sealed class PlantaCanvasView : SKCanvasView
         // Modo pan explícito (ícone na barra de ferramentas, ver CamadaEdicaoPage) — separado do
         // desenho de propósito: sem ScrollView ao redor do canvas (competia com o próprio gesto de
         // desenhar), arrastar só move a visualização quando esse modo está ligado; nunca ao mesmo
-        // tempo que o lápis desenha.
+        // tempo que o lápis desenha. Durante uma pinça (EmGestoDePinca), ignora por completo — ver
+        // comentário na propriedade — só consome o toque (e.Handled) sem mexer em PanX/PanY.
         if (ModoPan)
         {
-            GerenciarPan(e);
+            e.Handled = true;
+            if (!EmGestoDePinca)
+                GerenciarPan(e);
             return;
         }
 
@@ -785,22 +824,34 @@ public sealed class PlantaCanvasView : SKCanvasView
     }
 
     /// <summary>Com <see cref="ModoPan"/> ligado, qualquer arrasto de um dedo só move a visualização
-    /// (PanX/PanY) — não desenha nada, o lápis fica desativado enquanto esse modo está ligado.</summary>
+    /// (PanX/PanY) — não desenha nada, o lápis fica desativado enquanto esse modo está ligado. Rastreia
+    /// só o Id do primeiro dedo que tocou: sem isto, o segundo dedo de uma pinça também gera eventos
+    /// Pressed/Moved aqui (o SkiaSharp reporta cada ponteiro separadamente) e o "Pressed" dele
+    /// sobrescrevia _ultimoPontoPan com a posição do segundo dedo — um salto abrupto no meio do
+    /// gesto (bug reportado: "vai pra um ponto fixo"/"solta no meio do caminho" durante a pinça).</summary>
     private void GerenciarPan(SKTouchEventArgs e)
     {
         switch (e.ActionType)
         {
             case SKTouchAction.Pressed:
-                _ultimoPontoPan = e.Location;
+                if (_idPonteiroPan is null)
+                {
+                    _idPonteiroPan = e.Id;
+                    _ultimoPontoPan = e.Location;
+                }
                 break;
-            case SKTouchAction.Moved when _ultimoPontoPan is { } ultimo:
+            case SKTouchAction.Moved when e.Id == _idPonteiroPan && _ultimoPontoPan is { } ultimo:
                 PanX += e.Location.X - ultimo.X;
                 PanY += e.Location.Y - ultimo.Y;
                 _ultimoPontoPan = e.Location;
                 break;
             case SKTouchAction.Released:
             case SKTouchAction.Cancelled:
-                _ultimoPontoPan = null;
+                if (e.Id == _idPonteiroPan)
+                {
+                    _idPonteiroPan = null;
+                    _ultimoPontoPan = null;
+                }
                 break;
         }
 
