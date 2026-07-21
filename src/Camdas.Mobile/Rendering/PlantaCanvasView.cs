@@ -55,6 +55,7 @@ public sealed class PlantaCanvasView : SKCanvasView
         if (newValue is INotifyCollectionChanged novaColecao)
             novaColecao.CollectionChanged += view.OnCamadasCollectionChanged;
 
+        view.InvalidarComposicaoCache();
         view.InvalidateSurface();
     }
 
@@ -66,13 +67,19 @@ public sealed class PlantaCanvasView : SKCanvasView
             var view = (PlantaCanvasView)bindable;
             view._imagemBaseEscalada?.Dispose();
             view._imagemBaseEscalada = null;
+            view.InvalidarComposicaoCache();
             view.InvalidateSurface();
         });
 
     public static readonly BindableProperty ImagensPorCamadaProperty = BindableProperty.Create(
         nameof(ImagensPorCamada), typeof(IDictionary<Guid, SKBitmap>), typeof(PlantaCanvasView),
         defaultValue: null,
-        propertyChanged: (bindable, _, _) => ((PlantaCanvasView)bindable).InvalidateSurface());
+        propertyChanged: (bindable, _, _) =>
+        {
+            var view = (PlantaCanvasView)bindable;
+            view.InvalidarComposicaoCache();
+            view.InvalidateSurface();
+        });
 
     public static readonly BindableProperty CamadaAtivaIdProperty = BindableProperty.Create(
         nameof(CamadaAtivaId), typeof(Guid?), typeof(PlantaCanvasView), defaultValue: null);
@@ -130,7 +137,17 @@ public sealed class PlantaCanvasView : SKCanvasView
     private SKBitmap? _imagemBaseEscalada;
     private SKSizeI _tamanhoImagemBaseEscalada;
     private SKPoint? _ultimoPontoToque;
+    private SKPoint? _penultimoPontoToque;
     private SKPoint? _ultimoPontoPan;
+
+    /// <summary>Composição (imagem base + camadas visíveis) pré-renderizada num único bitmap, usada
+    /// só quando <see cref="UsarResolucaoNativa"/> é true. Sem isto, mexer no zoom/pan da
+    /// pré-visualização (CamadaEdicaoPage) disparava um DrawBitmap por camada A CADA FRAME de
+    /// arrasto — pesado o bastante pra travar num aparelho mais fraco, mesmo sem nenhum conteúdo
+    /// mudando (bug reportado: "opção de mexer na pré-visualização está travando"). Só é invalidada
+    /// quando o conteúdo de verdade muda (traço, visibilidade/ordem de camada, imagem base) — nunca
+    /// só por zoom/pan.</summary>
+    private SKBitmap? _composicaoNativaCache;
 
     public event EventHandler? DesenhoAlterado;
 
@@ -243,9 +260,26 @@ public sealed class PlantaCanvasView : SKCanvasView
     /// notificação de mudança (ex.: <see cref="ImagensPorCamada"/> é um Dictionary comum, mutado no
     /// lugar, sem INotifyCollectionChanged).
     /// </summary>
-    public void AtualizarPreview() => InvalidateSurface();
+    public void AtualizarPreview()
+    {
+        InvalidarComposicaoCache();
+        InvalidateSurface();
+    }
 
-    private void OnCamadasCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e) => InvalidateSurface();
+    private void OnCamadasCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        InvalidarComposicaoCache();
+        InvalidateSurface();
+    }
+
+    /// <summary>Descarta a composição cacheada (imagem base + camadas) — chamado sempre que o
+    /// conteúdo desenhado de fato muda (traço, camada, imagem base). Nunca chamado só por causa de
+    /// zoom/pan, que são transformações de visualização, não de conteúdo.</summary>
+    private void InvalidarComposicaoCache()
+    {
+        _composicaoNativaCache?.Dispose();
+        _composicaoNativaCache = null;
+    }
 
     /// <summary>Apaga (transparente) o bitmap da camada ativa, sem chamar a Api — só ao Salvar.</summary>
     public void LimparCamadaAtiva()
@@ -259,6 +293,7 @@ public sealed class PlantaCanvasView : SKCanvasView
         _historico.Clear();
         _desfeitas.Clear();
 
+        InvalidarComposicaoCache();
         DesenhoAlterado?.Invoke(this, EventArgs.Empty);
         InvalidateSurface();
     }
@@ -441,6 +476,7 @@ public sealed class PlantaCanvasView : SKCanvasView
         _historico.Add(acao);
         _desfeitas.Clear();
 
+        InvalidarComposicaoCache();
         DesenhoAlterado?.Invoke(this, EventArgs.Empty);
         InvalidateSurface();
     }
@@ -456,6 +492,7 @@ public sealed class PlantaCanvasView : SKCanvasView
         foreach (var acao in _historico)
             DesenharAcao(canvas, acao);
 
+        InvalidarComposicaoCache();
         DesenhoAlterado?.Invoke(this, EventArgs.Empty);
         InvalidateSurface();
     }
@@ -503,14 +540,34 @@ public sealed class PlantaCanvasView : SKCanvasView
             Color = traco.Apagar ? SKColors.Transparent : SKColor.Parse(traco.Cor),
         };
 
-        if (traco.Pontos.Count == 1)
+        var pontos = traco.Pontos;
+        if (pontos.Count == 1)
         {
-            canvas.DrawCircle(traco.Pontos[0], traco.Espessura / 2, paint);
+            canvas.DrawCircle(pontos[0], traco.Espessura / 2, paint);
             return;
         }
 
-        for (var i = 1; i < traco.Pontos.Count; i++)
-            canvas.DrawLine(traco.Pontos[i - 1], traco.Pontos[i], paint);
+        if (pontos.Count == 2)
+        {
+            canvas.DrawLine(pontos[0], pontos[1], paint);
+            return;
+        }
+
+        // Curva suave: cada trecho é uma Bézier quadrática entre os pontos médios de dois pontos
+        // capturados consecutivos, usando o ponto entre eles como controle — em vez de conectar os
+        // pontos crus com retas, que deixava o traço visivelmente anguloso em curvas rápidas do dedo
+        // (o toque não amostra pontos infinitamente próximos; bug reportado: "desenho livre não faz
+        // curvas"). Mesma técnica usada ao vivo em OnTouch, pra redesenho do histórico (desfazer/
+        // refazer/recarregar) bater com o que foi desenhado na hora.
+        using var caminho = new SKPath();
+        caminho.MoveTo(pontos[0]);
+        for (var i = 1; i < pontos.Count - 1; i++)
+        {
+            var pontoMedio = new SKPoint((pontos[i].X + pontos[i + 1].X) / 2f, (pontos[i].Y + pontos[i + 1].Y) / 2f);
+            caminho.QuadTo(pontos[i], pontoMedio);
+        }
+        caminho.LineTo(pontos[^1]);
+        canvas.DrawPath(caminho, paint);
     }
 
     protected override void OnPaintSurface(SKPaintSurfaceEventArgs e)
@@ -535,14 +592,17 @@ public sealed class PlantaCanvasView : SKCanvasView
         {
             // Desenha tudo em resolução nativa e deixa a transformação do canvas escalar — mantém a
             // planta base e o traço de cada camada alinhados entre si em qualquer nível de zoom, ao
-            // contrário de redimensionar cada bitmap individualmente.
+            // contrário de redimensionar cada bitmap individualmente. A composição em si (imagem base
+            // + camadas) vem cacheada de ObterComposicaoNativa — um único DrawBitmap por frame em vez
+            // de um por camada, senão mexer no zoom/pan (que chama InvalidateSurface a cada pixel de
+            // arrasto) refazia a composição inteira nesse ritmo, travando em aparelhos mais fracos.
             canvas.Save();
             canvas.Translate(PanX, PanY);
             canvas.Scale(Zoom);
-            if (Camadas is { Count: > 0 } camadasComZoom)
-                PlantaOverlayRenderer.Desenhar(canvas, camadasComZoom, ImagemBase, imagensPorCamada);
-            else if (PlantaOverlayRenderer.PodeDesenhar(ImagemBase))
-                canvas.DrawBitmap(ImagemBase, 0, 0);
+
+            var composicao = ObterComposicaoNativa(imagensPorCamada);
+            if (composicao is not null && PlantaOverlayRenderer.PodeDesenhar(composicao))
+                canvas.DrawBitmap(composicao, 0, 0);
 
             if (_elementoPendente is { } pendente)
                 DesenharElementoPendente(canvas, pendente);
@@ -557,6 +617,33 @@ public sealed class PlantaCanvasView : SKCanvasView
             PlantaOverlayRenderer.Desenhar(canvas, camadas, imagemBaseEscalada, imagensPorCamada);
         else if (PlantaOverlayRenderer.PodeDesenhar(imagemBaseEscalada))
             canvas.DrawBitmap(imagemBaseEscalada, 0, 0);
+    }
+
+    /// <summary>Reaproveita a composição cacheada (ver <see cref="_composicaoNativaCache"/>) se ainda
+    /// bater com o tamanho da imagem base, senão desenha tudo de novo uma única vez. Só é invalidada
+    /// explicitamente (<see cref="InvalidarComposicaoCache"/>) quando o conteúdo muda de verdade —
+    /// aqui só checamos o tamanho como salvaguarda (ex.: imagem base trocada por outra do mesmo
+    /// tamanho, caso a invalidação explícita falhe em algum caminho).</summary>
+    private SKBitmap? ObterComposicaoNativa(IReadOnlyDictionary<Guid, SKBitmap>? imagensPorCamada)
+    {
+        if (ImagemBase is not { } imagemBase || !PlantaOverlayRenderer.PodeDesenhar(imagemBase))
+            return null;
+
+        if (_composicaoNativaCache is { } cache && cache.Width == imagemBase.Width && cache.Height == imagemBase.Height)
+            return cache;
+
+        _composicaoNativaCache?.Dispose();
+        var composicao = new SKBitmap(imagemBase.Width, imagemBase.Height);
+        using (var canvasComposicao = new SKCanvas(composicao))
+        {
+            if (Camadas is { Count: > 0 } camadas)
+                PlantaOverlayRenderer.Desenhar(canvasComposicao, camadas, imagemBase, imagensPorCamada);
+            else
+                canvasComposicao.DrawBitmap(imagemBase, 0, 0);
+        }
+
+        _composicaoNativaCache = composicao;
+        return composicao;
     }
 
     private SKBitmap? ObterImagemBaseEscalada(SKImageInfo info)
@@ -645,22 +732,50 @@ public sealed class PlantaCanvasView : SKCanvasView
                 (Handler?.PlatformView as Android.Views.View)?.Parent?.RequestDisallowInterceptTouchEvent(true);
                 canvasBitmap.DrawCircle(ponto, EspessuraTraco / 2, paint);
                 _ultimoPontoToque = ponto;
+                _penultimoPontoToque = null;
                 _tracoEmAndamento = new AcaoTraco([ponto], CorTraco, EspessuraTraco, ModoApagar);
                 _desfeitas.Clear();
                 break;
             case SKTouchAction.Moved when _ultimoPontoToque is { } ultimo:
-                canvasBitmap.DrawLine(ultimo, ponto, paint);
+                if (_penultimoPontoToque is { } penultimo)
+                {
+                    // Curva suave: desenha do ponto médio(penúltimo, último) até o ponto médio(último,
+                    // atual), usando "último" como ponto de controle — em vez da reta direta
+                    // último→atual, que deixava o traço anguloso em curvas rápidas (mesma técnica de
+                    // DesenharTraco, usada ali sobre a lista inteira ao redesenhar do histórico).
+                    var inicio = new SKPoint((penultimo.X + ultimo.X) / 2f, (penultimo.Y + ultimo.Y) / 2f);
+                    var fim = new SKPoint((ultimo.X + ponto.X) / 2f, (ultimo.Y + ponto.Y) / 2f);
+                    using var caminho = new SKPath();
+                    caminho.MoveTo(inicio);
+                    caminho.QuadTo(ultimo, fim);
+                    canvasBitmap.DrawPath(caminho, paint);
+                }
+                else
+                {
+                    canvasBitmap.DrawLine(ultimo, ponto, paint);
+                }
+                _penultimoPontoToque = ultimo;
                 _ultimoPontoToque = ponto;
                 _tracoEmAndamento?.Pontos.Add(ponto);
+                InvalidarComposicaoCache();
                 break;
             case SKTouchAction.Released:
                 (Handler?.PlatformView as Android.Views.View)?.Parent?.RequestDisallowInterceptTouchEvent(false);
+                // Fecha o último trecho (do meio do penúltimo segmento até o ponto final solto) —
+                // sem isto, a suavização por pontos médios deixa a pontinha final do traço de fora.
+                if (_penultimoPontoToque is { } penultimoFinal && _ultimoPontoToque is { } ultimoFinal)
+                {
+                    var inicioFinal = new SKPoint((penultimoFinal.X + ultimoFinal.X) / 2f, (penultimoFinal.Y + ultimoFinal.Y) / 2f);
+                    canvasBitmap.DrawLine(inicioFinal, ultimoFinal, paint);
+                }
                 _ultimoPontoToque = null;
+                _penultimoPontoToque = null;
                 if (_tracoEmAndamento is not null)
                 {
                     _historico.Add(_tracoEmAndamento);
                     _tracoEmAndamento = null;
                 }
+                InvalidarComposicaoCache();
                 DesenhoAlterado?.Invoke(this, EventArgs.Empty);
                 break;
         }
