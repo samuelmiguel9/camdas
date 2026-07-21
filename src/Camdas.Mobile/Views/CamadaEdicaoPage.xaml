@@ -21,8 +21,8 @@
                 <BoxView WidthRequest="1" HeightRequest="24" Color="#D8D0C0" />
                 <Button x:Name="BotaoTexto" Text="T" FontSize="18" FontAttributes="Bold" Padding="8,0"
                         BackgroundColor="Transparent" TextColor="#333" Clicked="OnAlternarModoTextoClicked" />
-                <Button x:Name="BotaoPan" Text="✋" FontSize="18" Padding="8,0"
-                        BackgroundColor="Transparent" TextColor="#333" Clicked="OnAlternarModoPanClicked" />
+                <Button x:Name="BotaoDesenhar" Text="✏️" FontSize="18" Padding="8,0"
+                        BackgroundColor="Transparent" TextColor="#333" Clicked="OnAlternarModoDesenharClicked" />
             </HorizontalStackLayout>
         </Border>
 
@@ -42,9 +42,14 @@
         <!-- Sem ScrollView de propósito: um ScrollView ao redor do canvas competia com o próprio
              gesto de desenhar (arrastar o dedo virava rolagem do ScrollView pai a partir do primeiro
              Moved, travando o traço no ponto inicial mesmo com RequestDisallowInterceptTouchEvent).
-             Pan é um modo explícito (botão ✋ na barra acima): só nesse modo arrastar move a
-             visualização — desligado, o toque desenha normalmente. Nunca os dois ao mesmo tempo. -->
+             Desenhar é um modo explícito (botão ✏️ na barra acima, ligado por cima do padrão que é
+             ajustar a visualização): só com ele aceso o toque desenha — desligado (padrão), arrastar
+             move a visualização e a pinça (PinchGestureRecognizer abaixo) dá zoom. Nunca desenho e
+             ajuste ao mesmo tempo. -->
         <Grid Grid.Row="2">
+            <Grid.GestureRecognizers>
+                <PinchGestureRecognizer PinchUpdated="OnPinchUpdated" />
+            </Grid.GestureRecognizers>
 
             <views:PlantaCanvasView
                 x:Name="Canvas"
