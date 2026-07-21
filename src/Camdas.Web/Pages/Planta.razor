@@ -215,14 +215,18 @@
         });
     }
 
-    /// <summary>Mede via JS interop a largura real do container (coluna lateral ou overlay de tela
-    /// cheia) pra calcular o zoom que preenche a largura disponível — só a largura, igual ao app
-    /// Android (PlantaPage.AjustarZoomParaTela): encaixar também a altura deixava o zoom minúsculo
-    /// pra plantas altas, com metade da tela ociosa (bug reportado: "aumente" a visualização). O
-    /// excesso de altura, se houver, é resolvido com o scroll do próprio wrapper.</summary>
+    /// <summary>Mede via JS interop o tamanho real do container (coluna lateral ou overlay de tela
+    /// cheia) e calcula o zoom que preenche o MAIOR dos dois eixos (largura ou altura) — não só a
+    /// largura como antes: pra plantas bem largas em pixels (fotos/scans de alta resolução), ajustar
+    /// só pela largura dava um zoom minúsculo (2% no bug reportado, "amplie a área de visualização"),
+    /// murchando a área inteira mesmo sobrando bastante altura livre na tela. Usando o maior dos dois
+    /// eixos, a planta aparece o maior possível e o eixo que não couber fica disponível via scroll do
+    /// próprio wrapper (o wrapper agora tem altura FIXA em vez de max-height, senão essa medição vira
+    /// circular: a altura do container dependeria do zoom atual, que é justamente o que estamos
+    /// calculando).</summary>
     private async Task AjustarZoomParaTelaAsync(bool telaCheia)
     {
-        if (ViewModel.ImagemBase is not { } imagemBase || imagemBase.Width <= 0)
+        if (ViewModel.ImagemBase is not { } imagemBase || imagemBase.Width <= 0 || imagemBase.Height <= 0)
             return;
 
         var elementId = telaCheia ? "planta-fullscreen-wrapper" : "planta-canvas-wrapper";
@@ -237,7 +241,11 @@
         }
 
         var larguraDisponivel = tamanho is { Width: > 0 } ? tamanho.Width : LarguraColunaAproximada;
-        AjustarZoom(Math.Min(1.0, larguraDisponivel / imagemBase.Width));
+        var alturaDisponivel = tamanho is { Height: > 0 } ? tamanho.Height : larguraDisponivel;
+
+        var zoomPorLargura = larguraDisponivel / imagemBase.Width;
+        var zoomPorAltura = alturaDisponivel / imagemBase.Height;
+        AjustarZoom(Math.Min(1.0, Math.Max(zoomPorLargura, zoomPorAltura)));
     }
 
     private void AbrirTelaCheia()

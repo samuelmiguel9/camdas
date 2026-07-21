@@ -185,10 +185,14 @@
 }
 
 /* Wrapper com barra de rolagem: a planta pode ficar maior que a área visível (zoom alto ou imagem
-   grande) — sem isto ela ficava cortada, sem forma de ver o restante. Altura aumentada (75vh -> 85vh)
-   pra usar mais a tela disponível, mesmo pedido de "ampliar" a visualização. */
+   grande) — sem isto ela ficava cortada, sem forma de ver o restante. Altura FIXA (não max-height):
+   com max-height, a caixa encolhia pro tamanho do conteúdo sempre que o zoom calculado ficava baixo
+   (imagem muito larga em pixels rende zoom-por-largura minúsculo), fazendo a área de visualização
+   murchar junto com o zoom em vez de continuar grande com espaço sobrando (bug reportado: "a
+   visualização fica em 2%, amplie a área"). Com altura fixa, a medição em AjustarZoomParaTelaAsync
+   também deixa de ser circular (não depende do zoom atual pra medir o espaço disponível). */
 .planta-canvas-scroll {
-    max-height: 85vh;
+    height: 85vh;
     overflow: auto;
     border: 1px solid #dee2e6;
     border-radius: 4px;
@@ -229,7 +233,7 @@
 }
 
 .planta-fullscreen-scroll {
-    max-height: calc(100vh - 96px);
-    max-width: calc(100vw - 96px);
+    height: calc(100vh - 96px);
+    width: calc(100vw - 96px);
     border-color: #ccc;
 }
