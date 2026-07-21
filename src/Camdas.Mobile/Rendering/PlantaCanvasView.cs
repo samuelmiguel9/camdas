@@ -28,7 +28,7 @@ public sealed class PlantaCanvasView : SKCanvasView
     /// já que o desenho é raster (não dá pra "remover" uma pincelada específica de outro jeito).</summary>
     private abstract record AcaoDesenho;
     private sealed record AcaoTraco(List<SKPoint> Pontos, string Cor, float Espessura, bool Apagar) : AcaoDesenho;
-    private sealed record AcaoTexto(string Texto, SKPoint Posicao, string Cor, float TamanhoFonte) : AcaoDesenho;
+    private sealed record AcaoTexto(string Texto, SKPoint Posicao, string Cor, float TamanhoFonte, float RotacaoGraus = 0f) : AcaoDesenho;
 
     private readonly List<AcaoDesenho> _historico = [];
     private readonly Stack<AcaoDesenho> _desfeitas = [];
@@ -296,12 +296,24 @@ public sealed class PlantaCanvasView : SKCanvasView
         public string Cor = "#000000";
         public float TamanhoFonte;
         public SKRect Retangulo;
+        public float RotacaoGraus;
     }
 
     private ElementoPendente? _elementoPendente;
     private SKPoint? _ultimoPontoElementoPendente;
 
     public bool TemElementoPendente => _elementoPendente is not null;
+
+    /// <summary>Gira o texto pendente em passos de 90° (0/90/180/270) em torno do próprio ponto de
+    /// ancoragem — sem efeito se não houver elemento pendente.</summary>
+    public void RotacionarElementoPendente()
+    {
+        if (_elementoPendente is not { } pendente)
+            return;
+
+        pendente.RotacaoGraus = (pendente.RotacaoGraus + 90f) % 360f;
+        InvalidateSurface();
+    }
 
     /// <summary>Começa a posicionar um texto — aparece "solto" (com moldura) no ponto tocado, pra
     /// mover antes de confirmar. Ver <see cref="ConfirmarElementoPendente"/>.</summary>
@@ -328,7 +340,9 @@ public sealed class PlantaCanvasView : SKCanvasView
         if (_elementoPendente is not { } pendente)
             return;
 
-        AdicionarTexto(pendente.Texto, new SKPoint(pendente.Retangulo.Left, pendente.Retangulo.Bottom), pendente.Cor, pendente.TamanhoFonte);
+        AdicionarTexto(
+            pendente.Texto, new SKPoint(pendente.Retangulo.Left, pendente.Retangulo.Bottom),
+            pendente.Cor, pendente.TamanhoFonte, pendente.RotacaoGraus);
 
         _elementoPendente = null;
         InvalidateSurface();
@@ -344,15 +358,24 @@ public sealed class PlantaCanvasView : SKCanvasView
 
     private void DesenharElementoPendente(SKCanvas canvas, ElementoPendente pendente)
     {
+        // Mesmo pivô (ponto de ancoragem, canto inferior esquerdo) usado na hora de confirmar — o
+        // preview aqui precisa bater exatamente com o resultado final desenhado em AdicionarTexto.
+        var pivo = new SKPoint(pendente.Retangulo.Left, pendente.Retangulo.Bottom);
+
+        canvas.Save();
+        if (pendente.RotacaoGraus != 0f)
+            canvas.RotateDegrees(pendente.RotacaoGraus, pivo.X, pivo.Y);
+
         using var paintTexto = new SKPaint { IsAntialias = true, Color = SKColor.Parse(pendente.Cor) };
         using var fonte = new SKFont(SKTypeface.Default, pendente.TamanhoFonte);
-        canvas.DrawText(pendente.Texto, pendente.Retangulo.Left, pendente.Retangulo.Bottom, fonte, paintTexto);
+        canvas.DrawText(pendente.Texto, pivo.X, pivo.Y, fonte, paintTexto);
 
         // Espessura dividida pelo Zoom pra moldura ter sempre o mesmo tamanho na tela, independente
         // do nível de zoom (o canvas já está escalado por Zoom neste ponto).
         var escala = Math.Max(Zoom, 0.05f);
         using var borda = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Stroke, StrokeWidth = 2f / escala, Color = SKColors.DeepSkyBlue };
         canvas.DrawRect(pendente.Retangulo, borda);
+        canvas.Restore();
     }
 
     /// <summary>Toque enquanto há um elemento pendente: arrasta pra mover — nunca desenha na camada
@@ -405,12 +428,12 @@ public sealed class PlantaCanvasView : SKCanvasView
 
     /// <summary>Escreve texto na camada ativa na posição indicada (coordenadas na resolução nativa
     /// da imagem base) — entra no histórico igual a um traço, pra poder desfazer.</summary>
-    public void AdicionarTexto(string texto, SKPoint posicao, string cor, float tamanhoFonte)
+    public void AdicionarTexto(string texto, SKPoint posicao, string cor, float tamanhoFonte, float rotacaoGraus = 0f)
     {
         if (CamadaAtivaId is not { } camadaId || ImagensPorCamada is null || string.IsNullOrWhiteSpace(texto))
             return;
 
-        var acao = new AcaoTexto(texto, posicao, cor, tamanhoFonte);
+        var acao = new AcaoTexto(texto, posicao, cor, tamanhoFonte, rotacaoGraus);
         var bitmap = ObterOuCriarBitmapDaCamada(camadaId);
         using (var canvas = new SKCanvas(bitmap))
             DesenharAcao(canvas, acao);
@@ -447,7 +470,22 @@ public sealed class PlantaCanvasView : SKCanvasView
             case AcaoTexto texto:
                 using (var paint = new SKPaint { IsAntialias = true, Color = SKColor.Parse(texto.Cor) })
                 using (var fonte = new SKFont(SKTypeface.Default, texto.TamanhoFonte))
-                    canvas.DrawText(texto.Texto, texto.Posicao.X, texto.Posicao.Y, fonte, paint);
+                {
+                    if (texto.RotacaoGraus == 0f)
+                    {
+                        canvas.DrawText(texto.Texto, texto.Posicao.X, texto.Posicao.Y, fonte, paint);
+                    }
+                    else
+                    {
+                        // Rotaciona em torno do próprio ponto de ancoragem (base do texto) — mesmo
+                        // pivô usado no preview do elemento pendente, pra o resultado final bater
+                        // exatamente com o que o usuário viu antes de confirmar.
+                        canvas.Save();
+                        canvas.RotateDegrees(texto.RotacaoGraus, texto.Posicao.X, texto.Posicao.Y);
+                        canvas.DrawText(texto.Texto, texto.Posicao.X, texto.Posicao.Y, fonte, paint);
+                        canvas.Restore();
+                    }
+                }
                 break;
         }
     }

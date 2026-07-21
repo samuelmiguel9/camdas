@@ -283,9 +283,23 @@ public partial class PlantaPage : ContentPage
     private async void OnAbrirEdicoesPendentesClicked(object? sender, EventArgs e) =>
         await Shell.Current.GoToAsync($"{nameof(RevisaoEdicoesPage)}?plantaId={PlantaId}");
 
+    /// <summary>Hidráulica/Elétrica são camadas pré-definidas com nome fixo — <see
+    /// cref="PlantaViewModel.EditarCamada"/> reconhece esses nomes e trava a cor do traço
+    /// automaticamente (azul/amarelo), escondendo a paleta (ver <see cref="PlantaViewModel.PermiteEscolherCor"/>).
+    /// "Camada livre" é o fluxo antigo: pede o nome e deixa a cor solta.</summary>
     private async void OnNovaCamadaClicked(object? sender, EventArgs e)
     {
-        var nome = await DisplayPromptAsync("Nova camada", "Nome da camada");
+        var tipo = await DisplayActionSheet(
+            "Nova camada", "Cancelar", null, "Hidráulica (azul)", "Elétrica (amarelo)", "Camada livre");
+        if (tipo is null || tipo == "Cancelar")
+            return;
+
+        var nome = tipo switch
+        {
+            "Hidráulica (azul)" => PlantaViewModel.NomeCamadaHidraulica,
+            "Elétrica (amarelo)" => PlantaViewModel.NomeCamadaEletrica,
+            _ => await DisplayPromptAsync("Nova camada", "Nome da camada"),
+        };
         if (string.IsNullOrWhiteSpace(nome))
             return;
 
@@ -314,6 +328,32 @@ public partial class PlantaPage : ContentPage
 
         if (_viewModel.MensagemErro is null)
             await DisplayAlert("Salvar na galeria", "Planta salva na galeria (Pictures/Camdas).", "OK");
+    }
+
+    /// <summary>Gera o arquivo de projeto (.json — ver PlantaViewModel.ExportarParaArquivo) e abre o
+    /// menu de compartilhar do Android, pra mandar pra outro dispositivo por qualquer app (WhatsApp,
+    /// Drive, e-mail, Bluetooth...) — mesmo padrão já usado pelo relatório em PDF (ProjetosPage).</summary>
+    private async void OnExportarProjetoClicked(object? sender, EventArgs e)
+    {
+        var dados = _viewModel.ExportarParaArquivo();
+        if (dados is null)
+        {
+            await DisplayAlert("Exportar projeto", _viewModel.MensagemErro ?? "Não foi possível exportar.", "OK");
+            return;
+        }
+
+        try
+        {
+            var nomeArquivo = $"{_viewModel.Planta!.Nome}.camdas.json";
+            var caminho = Path.Combine(FileSystem.CacheDirectory, nomeArquivo);
+            await File.WriteAllBytesAsync(caminho, dados);
+
+            await Launcher.Default.OpenAsync(new OpenFileRequest("Projeto Camdas", new ReadOnlyFile(caminho)));
+        }
+        catch (Exception ex)
+        {
+            await DisplayAlert("Exportar projeto", $"Não foi possível compartilhar o arquivo: {ex.Message}", "OK");
+        }
     }
 
     // --- Ferramentas de desenho (modo de edição inline) ---
@@ -426,6 +466,8 @@ public partial class PlantaPage : ContentPage
         BarraPosicionamento.IsVisible = false;
         BarraFerramentasEdicao.IsVisible = _viewModel.ModoEdicao;
     }
+
+    private void OnRotacionarElementoPendenteClicked(object? sender, EventArgs e) => Canvas.RotacionarElementoPendente();
 
     private void OnConfirmarElementoPendenteClicked(object? sender, EventArgs e)
     {

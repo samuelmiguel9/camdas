@@ -49,14 +49,20 @@
                 ModoApagar="{Binding ModoApagar}" />
         </ScrollView>
 
-        <HorizontalStackLayout Grid.Row="3" Spacing="8"
-                               IsVisible="{Binding ModoEdicao, Converter={StaticResource InvertedBoolConverter}}">
-            <!-- Oculta a lista de camadas por padrão (deixa mais espaço pra planta) — clique mostra/
-                 esconde; a seta indica o estado (▲ mostra, ▼ esconde), igual um "drawer". -->
-            <Button x:Name="BotaoAlternarCamadas" Text="▲ Camadas" FontAttributes="Bold" Clicked="OnAlternarCamadasClicked" />
-            <Button Text="+ Nova camada" Clicked="OnNovaCamadaClicked" />
-            <Button Text="💾 Salvar tudo (PNG)" Clicked="OnSalvarNaGaleriaClicked" />
-        </HorizontalStackLayout>
+        <!-- ScrollView horizontal: no celular (tela estreita) os 4 botões não cabem todos visíveis
+             de uma vez — sem isto, os últimos (ex.: Exportar) ficavam cortados fora da tela, sem
+             como tocar. No tablet (tela larga) não chega a rolar, fica igual antes. -->
+        <ScrollView Grid.Row="3" Orientation="Horizontal"
+                    IsVisible="{Binding ModoEdicao, Converter={StaticResource InvertedBoolConverter}}">
+            <HorizontalStackLayout Spacing="8">
+                <!-- Oculta a lista de camadas por padrão (deixa mais espaço pra planta) — clique mostra/
+                     esconde; a seta indica o estado (▲ mostra, ▼ esconde), igual um "drawer". -->
+                <Button x:Name="BotaoAlternarCamadas" Text="▲ Camadas" FontAttributes="Bold" Clicked="OnAlternarCamadasClicked" />
+                <Button Text="+ Nova camada" Clicked="OnNovaCamadaClicked" />
+                <Button Text="💾 Salvar tudo (PNG)" Clicked="OnSalvarNaGaleriaClicked" />
+                <Button Text="📄 Exportar projeto (.json)" Clicked="OnExportarProjetoClicked" />
+            </HorizontalStackLayout>
+        </ScrollView>
 
         <!-- Barra de ferramentas de desenho: aparece só no modo de edição (ModoEdicao). Desenha na
              camada ativa com as demais visíveis por baixo, pra o usuário não repetir medidas. Mesmos
@@ -81,16 +87,20 @@
                 </HorizontalStackLayout>
             </Border>
 
-            <HorizontalStackLayout Spacing="6" HorizontalOptions="Center">
+            <!-- Escondida nas camadas pré-definidas (Hidráulica/Elétrica) — a cor fica travada
+                 (ver PlantaViewModel.PermiteEscolherCor/EditarCamada), não faz sentido oferecer escolha. -->
+            <HorizontalStackLayout Spacing="6" HorizontalOptions="Center" IsVisible="{Binding PermiteEscolherCor}">
                 <Button BackgroundColor="#000000" WidthRequest="28" HeightRequest="28" CommandParameter="#000000" Clicked="OnCorClicked" />
                 <Button BackgroundColor="#E74C3C" WidthRequest="28" HeightRequest="28" CommandParameter="#E74C3C" Clicked="OnCorClicked" />
-                <Button BackgroundColor="#E67E22" WidthRequest="28" HeightRequest="28" CommandParameter="#E67E22" Clicked="OnCorClicked" />
                 <Button BackgroundColor="#F1C40F" WidthRequest="28" HeightRequest="28" CommandParameter="#F1C40F" Clicked="OnCorClicked" />
-                <Button BackgroundColor="#2ECC71" WidthRequest="28" HeightRequest="28" CommandParameter="#2ECC71" Clicked="OnCorClicked" />
                 <Button BackgroundColor="#2E86DE" WidthRequest="28" HeightRequest="28" CommandParameter="#2E86DE" Clicked="OnCorClicked" />
-                <Button BackgroundColor="#8E44AD" WidthRequest="28" HeightRequest="28" CommandParameter="#8E44AD" Clicked="OnCorClicked" />
-                <Button BackgroundColor="#7F8C8D" WidthRequest="28" HeightRequest="28" CommandParameter="#7F8C8D" Clicked="OnCorClicked" />
+                <Button BackgroundColor="#FFFFFF" BorderColor="#999999" BorderWidth="1" WidthRequest="28" HeightRequest="28" CommandParameter="#FFFFFF" Clicked="OnCorClicked" />
             </HorizontalStackLayout>
+
+            <!-- Indicador de cor travada, no lugar da paleta, nas camadas pré-definidas. -->
+            <Label IsVisible="{Binding PermiteEscolherCor, Converter={StaticResource InvertedBoolConverter}}"
+                   Text="{Binding CamadaAtiva.Nome, StringFormat='Cor travada: {0}'}"
+                   HorizontalOptions="Center" FontSize="12" TextColor="Gray" FontAttributes="Italic" />
 
             <HorizontalStackLayout Spacing="8" HorizontalOptions="Center">
                 <Label Text="Espessura" VerticalOptions="Center" />
@@ -108,6 +118,7 @@
             <Label Text="Arraste o texto pra posicionar"
                    FontSize="12" TextColor="#333" HorizontalOptions="Center" />
             <HorizontalStackLayout Spacing="10" HorizontalOptions="Center">
+                <Button Text="↻ Girar 90°" Clicked="OnRotacionarElementoPendenteClicked" />
                 <Button Text="✓ Confirmar" BackgroundColor="#2ECC71" TextColor="White" Clicked="OnConfirmarElementoPendenteClicked" />
                 <Button Text="✕ Cancelar" BackgroundColor="#E74C3C" TextColor="White" Clicked="OnCancelarElementoPendenteClicked" />
             </HorizontalStackLayout>

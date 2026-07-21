@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Text.Json;
 using Camdas.Contracts;
 using Camdas.Domain.Enums;
+using Camdas.Mobile.Exportacao;
 using Camdas.Mobile.Rendering;
 using Camdas.Mobile.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -29,7 +30,20 @@ public partial class PlantaViewModel(IApiClient apiClient, ISalvadorGaleria salv
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CamadaEmEdicaoId))]
+    [NotifyPropertyChangedFor(nameof(PermiteEscolherCor))]
     private CamadaDto? _camadaAtiva;
+
+    /// <summary>Camadas pré-definidas (ver <see cref="EditarCamada"/> e PlantaPage.OnNovaCamadaClicked)
+    /// identificadas pelo nome — travadas numa cor fixa (hidráulica = azul, elétrica = amarelo), pra
+    /// manter a convenção entre plantas sem depender do usuário lembrar/escolher certo toda vez.</summary>
+    public const string NomeCamadaHidraulica = "Hidráulica";
+    public const string NomeCamadaEletrica = "Elétrica";
+    public const string CorHidraulica = "#2E86DE";
+    public const string CorEletrica = "#F1C40F";
+
+    /// <summary>Falso pras camadas pré-definidas (hidráulica/elétrica) — a paleta de cores fica
+    /// escondida na barra de ferramentas e o traço sempre sai na cor fixa daquela camada.</summary>
+    public bool PermiteEscolherCor => CamadaAtiva is not { Nome: NomeCamadaHidraulica or NomeCamadaEletrica };
 
     /// <summary>Id da camada que o canvas deve tratar como ativa pra desenho — só preenchido em
     /// <see cref="ModoEdicao"/>. Fora da edição fica null, então tocar na planta na visualização
@@ -184,6 +198,29 @@ public partial class PlantaViewModel(IApiClient apiClient, ISalvadorGaleria salv
         }
     }
 
+    /// <summary>Gera o arquivo de projeto (JSON — ver <see cref="ArquivoPlantaService"/>) com a
+    /// imagem base + o traço de todas as camadas, pra enviar a outro dispositivo e reabrir lá como
+    /// planta nova (ver PlantasDoProjetoViewModel.ImportarArquivoDeProjetoAsync). Retorna null (e
+    /// preenche MensagemErro) se não houver planta carregada ainda.</summary>
+    public byte[]? ExportarParaArquivo()
+    {
+        if (Planta is null || ImagemBase is null)
+        {
+            MensagemErro = "Nada pra exportar ainda — a planta não terminou de carregar.";
+            return null;
+        }
+
+        try
+        {
+            return ArquivoPlantaService.Exportar(Planta, ImagemBase, ImagensPorCamada);
+        }
+        catch (Exception ex)
+        {
+            MensagemErro = $"Não foi possível exportar o projeto: {ex.Message}";
+            return null;
+        }
+    }
+
     /// <summary>
     /// Move a camada arrastada (<paramref name="origem"/>) pra posição da camada onde ela foi solta
     /// (<paramref name="destino"/>) e persiste a nova ordem no servidor, que devolve a lista já
@@ -245,6 +282,13 @@ public partial class PlantaViewModel(IApiClient apiClient, ISalvadorGaleria salv
         ModoApagar = false;
         CamadaMenuAberta = null;
         ModoEdicao = true;
+
+        CorTraco = camada.Nome switch
+        {
+            NomeCamadaHidraulica => CorHidraulica,
+            NomeCamadaEletrica => CorEletrica,
+            _ => CorTraco,
+        };
     }
 
     public void SairDaEdicao() => ModoEdicao = false;
