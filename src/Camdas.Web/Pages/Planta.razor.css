@@ -1,24 +1,44 @@
-/* Layout empilhado: planta em cima, painel de camadas embaixo em faixa horizontal — a versão
-   antiga em colunas lado a lado (col-md-3/col-md-9) deixava o painel de camadas espremido numa
-   coluna estreita e embolado (bug reportado: "guia de camadas... esta embolado"). */
+/* Planta ocupa a área principal (maior, à esquerda); painel de camadas vira uma barra lateral à
+   direita, com largura fixa e coluna única (min-width evita a barra encolher demais e o conteúdo
+   ficar espremido — era o bug da tentativa anterior em colunas col-md-3/col-md-9, "guia de
+   camadas... esta embolado"). Em tela estreita (celular) volta a empilhar, camadas embaixo. */
 .planta-layout {
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
+    align-items: flex-start;
     gap: 16px;
 }
 
+.planta-area {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
 .planta-camadas-area {
-    width: 100%;
+    flex: 0 0 380px;
+    width: 380px;
+    min-width: 320px;
+}
+
+@media (max-width: 900px) {
+    .planta-layout {
+        flex-direction: column;
+    }
+
+    .planta-camadas-area {
+        width: 100%;
+        flex: 1 1 auto;
+    }
 }
 
 .camadas-painel {
     background-color: #2e2e2e;
     border: 1px solid #1e1e1e;
     border-radius: 4px;
-    max-height: 40vh;
+    max-height: 85vh;
     overflow-y: auto;
     display: flex;
-    flex-wrap: wrap;
+    flex-direction: column;
     gap: 8px;
     padding: 8px;
 }
@@ -30,8 +50,7 @@
     padding: 8px 10px;
     border: 1px solid #1e1e1e;
     border-radius: 4px;
-    width: 320px;
-    flex: 0 0 auto;
+    width: 100%;
 }
 
 .camada-linha:hover {
