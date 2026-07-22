@@ -259,7 +259,12 @@
 
                         <VerticalStackLayout Spacing="2">
                             <Label Text="Opacidade" TextColor="#CCCCCC" FontSize="11" />
+                            <!-- IsEnabled=false quando BloqueioAlpha está ligado — sem isto o slider
+                                 deixava arrastar normalmente mesmo com a opacidade bloqueada, e só o
+                                 back-end recusava a mudança (bug reportado: "bloquear opacidade não
+                                 está bloqueando"). -->
                             <Slider Minimum="0" Maximum="1" Value="{Binding Opacidade, Mode=TwoWay}"
+                                    IsEnabled="{Binding BloqueioAlpha, Converter={StaticResource InvertedBoolConverter}}"
                                     DragCompleted="OnOpacidadeSliderDragCompleted" />
                         </VerticalStackLayout>
 
@@ -275,10 +280,6 @@
                         <Button Text="{Binding BloqueioAlpha, Converter={StaticResource BoolParaTextoConverter}, ConverterParameter='Desbloquear opacidade;Bloquear opacidade'}"
                                 FontSize="12" Padding="6,4"
                                 Command="{Binding BindingContext.AlternarBloqueioAlphaCommand, Source={RelativeSource AncestorType={x:Type ContentPage}}}"
-                                CommandParameter="{Binding .}" />
-
-                        <Button Text="Duplicar camada" FontSize="12" Padding="6,4"
-                                Command="{Binding BindingContext.DuplicarCamadaCommand, Source={RelativeSource AncestorType={x:Type ContentPage}}}"
                                 CommandParameter="{Binding .}" />
 
                         <Button Text="Excluir camada" TextColor="#E74C3C" FontSize="12" Padding="6,4"

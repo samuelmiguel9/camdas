@@ -28,6 +28,9 @@ public partial class PlantaPage : ContentPage
         _viewModel.PropertyChanged += OnViewModelPropertyChanged;
         Canvas.SolicitarTexto += OnCanvasSolicitarTexto;
         Canvas.ZoomPorGestoSolicitado += (_, dados) => AtualizarZoomPinca(dados.FatorEscala, dados.Centro);
+        Canvas.IconeTocado += OnCanvasIconeTocado;
+        Canvas.IconeEmEdicaoIniciada += (_, _) => MostrarBarraPosicionamento("Arraste o ícone pra posicionar (ou cancele pra deixar como estava)");
+        Canvas.TextoEmEdicaoIniciado += (_, _) => MostrarBarraPosicionamento("Arraste o texto pra posicionar (ou cancele pra deixar como estava)");
 
         // O canvas sempre tem o tamanho da área visível do ScrollView (visualização ou edição — ver
         // comentário em AplicarModoEdicaoUi sobre por que os dois modos agora compartilham o mesmo
@@ -156,6 +159,16 @@ public partial class PlantaPage : ContentPage
             Canvas.HeightRequest = PlantaScroll.Height;
     }
 
+    /// <summary>Setado enquanto QUALQUER código daqui muda ZoomSlider.Value programaticamente —
+    /// necessário porque atribuir Slider.Value dispara o evento ValueChanged igual um arrasto de
+    /// verdade do usuário. Sem esse guard, AtualizarZoomPinca (ancora no ponto médio dos dedos, NÃO
+    /// reseta Pan) atualizava o slider só pra manter o rótulo em dia, isso disparava
+    /// OnZoomSliderChanged, que chamava ESTE AtualizarZoom — que reseta Canvas.PanX/PanY pra 0 — a
+    /// cada evento de pinça, desfazendo a âncora no mesmo instante em que era calculada. Era a causa
+    /// raiz real do bug "pinça sempre volta pro canto/ponto fixo" (sobrevivia a toda tentativa
+    /// anterior de consertar só a conta da âncora, porque o problema nunca foi a conta).</summary>
+    private bool _atualizandoZoomProgramaticamente;
+
     /// <summary>Canvas sempre do tamanho da área visível (nunca infla pra rolar dentro do ScrollView,
     /// ver comentário em AplicarModoEdicaoUi) — o zoom só afeta o Scale/Translate internos do
     /// OnPaintSurface, igual nos dois modos. Sem inflar, a superfície nunca estoura o limite do
@@ -174,8 +187,7 @@ public partial class PlantaPage : ContentPage
         Canvas.Zoom = zoom;
         Canvas.AtualizarPreview();
 
-        ZoomSlider.Value = zoom;
-        ZoomLabel.Text = $"{(int)Math.Round(zoom * 100)}%";
+        AtualizarSliderELabelSemDispararEvento(zoom);
     }
 
     /// <summary>Escala a planta pra caber na largura disponível da tela (nunca amplia além de 100%).</summary>
@@ -189,7 +201,20 @@ public partial class PlantaPage : ContentPage
         AtualizarZoom(zoomAjustado);
     }
 
-    private void OnZoomSliderChanged(object? sender, ValueChangedEventArgs e) => AtualizarZoom((float)e.NewValue);
+    private void AtualizarSliderELabelSemDispararEvento(float zoom)
+    {
+        _atualizandoZoomProgramaticamente = true;
+        ZoomSlider.Value = zoom;
+        _atualizandoZoomProgramaticamente = false;
+        ZoomLabel.Text = $"{(int)Math.Round(zoom * 100)}%";
+    }
+
+    private void OnZoomSliderChanged(object? sender, ValueChangedEventArgs e)
+    {
+        if (_atualizandoZoomProgramaticamente)
+            return;
+        AtualizarZoom((float)e.NewValue);
+    }
 
     private void OnAumentarZoomClicked(object? sender, EventArgs e) => AtualizarZoom(Canvas.Zoom + 0.25f);
 
@@ -415,8 +440,7 @@ public partial class PlantaPage : ContentPage
         Canvas.PanY += pontoConteudoY * (zoomAntigo - novoZoom);
         Canvas.Zoom = novoZoom;
 
-        ZoomSlider.Value = novoZoom;
-        ZoomLabel.Text = $"{(int)Math.Round(novoZoom * 100)}%";
+        AtualizarSliderELabelSemDispararEvento(novoZoom);
     }
 
     /// <summary>Alterna a borracha (apaga em vez de pintar). Como ela desenha, desliga texto/pan pra
@@ -526,5 +550,15 @@ public partial class PlantaPage : ContentPage
 
         Canvas.IniciarIconePendente(picture, nomeArquivo, pontoNativo);
         MostrarBarraPosicionamento("Arraste o ícone pra posicionar");
+    }
+
+    /// <summary>Disparado quando o usuário toca (sem arrastar) num ícone já colocado nesta sessão,
+    /// com a camada "Ícones" ativa e o lápis ligado (ver Canvas.TratarToqueNaCamadaIcones) — confirma
+    /// antes de excluir só aquele ícone específico.</summary>
+    private async void OnCanvasIconeTocado(object? sender, Guid iconeId)
+    {
+        var confirmar = await DisplayAlert("Excluir ícone", "Excluir esse ícone da planta?", "Excluir", "Cancelar");
+        if (confirmar)
+            Canvas.ExcluirIconeColocado(iconeId);
     }
 }

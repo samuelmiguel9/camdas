@@ -42,6 +42,9 @@ public sealed class Camada : Entity
 
     internal void DefinirOpacidade(double opacidade)
     {
+        if (BloqueioAlpha)
+            throw new DomainException($"A camada '{Nome}' está com a opacidade bloqueada.");
+
         if (opacidade is < 0.0 or > 1.0)
             throw new DomainException("Opacidade precisa estar entre 0 e 1.");
 

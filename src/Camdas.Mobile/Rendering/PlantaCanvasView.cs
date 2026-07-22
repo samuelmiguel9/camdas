@@ -35,6 +35,15 @@ public sealed class PlantaCanvasView : SKCanvasView
     private readonly Stack<AcaoDesenho> _desfeitas = [];
     private AcaoTraco? _tracoEmAndamento;
 
+    /// <summary>Cópia do bitmap da camada ativa no exato estado em que ela chegou (recém carregada
+    /// do servidor com traço de sessões anteriores, ou vazia se for camada nova) — capturada uma vez
+    /// ao entrar em edição (ver CamadaAtivaIdProperty), ANTES de qualquer traço desta sessão. Usada
+    /// por <see cref="RedesenharDoHistorico"/> como ponto de partida, em vez de assumir bitmap em
+    /// branco — sem isto, desfazer limpava o bitmap e redesenhava só as ações desta sessão em
+    /// memória, apagando qualquer traço já existente de antes (bug real reportado: "seta voltar
+    /// remove tudo como se limpasse a camada inteira").</summary>
+    private SKBitmap? _bitmapBaseHistorico;
+
     public static readonly BindableProperty CamadasProperty = BindableProperty.Create(
         nameof(Camadas), typeof(IReadOnlyList<CamadaDto>), typeof(PlantaCanvasView),
         defaultValue: null,
@@ -83,7 +92,18 @@ public sealed class PlantaCanvasView : SKCanvasView
         });
 
     public static readonly BindableProperty CamadaAtivaIdProperty = BindableProperty.Create(
-        nameof(CamadaAtivaId), typeof(Guid?), typeof(PlantaCanvasView), defaultValue: null);
+        nameof(CamadaAtivaId), typeof(Guid?), typeof(PlantaCanvasView),
+        defaultValue: null,
+        propertyChanged: (bindable, _, newValue) =>
+        {
+            var view = (PlantaCanvasView)bindable;
+            // Trocar de camada ativa não deve arrastar o histórico de desfazer/refazer da camada
+            // anterior — ele nunca fez sentido pra outra camada (RedesenharDoHistorico sempre
+            // reconstrói CamadaAtivaId).
+            view._historico.Clear();
+            view._desfeitas.Clear();
+            view.CapturarBaselineHistorico((Guid?)newValue);
+        });
 
     public static readonly BindableProperty CorTracoProperty = BindableProperty.Create(
         nameof(CorTraco), typeof(string), typeof(PlantaCanvasView), defaultValue: "#000000");
@@ -302,6 +322,10 @@ public sealed class PlantaCanvasView : SKCanvasView
         canvas.Clear(SKColors.Transparent);
         _historico.Clear();
         _desfeitas.Clear();
+        // O baseline (ver _bitmapBaseHistorico) também precisa esvaziar — senão um desfazer logo
+        // depois de "Limpar" traria de volta o traço antigo (pré-limpeza), que não existe mais.
+        _bitmapBaseHistorico?.Dispose();
+        _bitmapBaseHistorico = null;
 
         InvalidarComposicaoCache();
         DesenhoAlterado?.Invoke(this, EventArgs.Empty);
@@ -357,7 +381,45 @@ public sealed class PlantaCanvasView : SKCanvasView
         public required string NomeArquivo;
     }
 
+    /// <summary>Um ícone já confirmado/gravado na camada "Ícones" — guardado só em memória, NESTA
+    /// sessão do app, pra permitir tocar nele depois (excluir, ou pegar de volta pra mover/girar/
+    /// redimensionar — ver <see cref="TratarToqueNaCamadaIcones"/>/<see cref="ExcluirIconeColocado"/>/
+    /// <see cref="IniciarEdicaoIconeColocado"/>). Não existe persistência disso no servidor (a camada
+    /// só guarda o PNG final) — um ícone de uma sessão anterior (carregado como raster puro) não
+    /// aparece aqui, então não pode ser reaproveitado assim; só via "Limpar camada".</summary>
+    private sealed record IconeColocado(Guid Id, SKPicture Picture, string NomeArquivo, SKRect Retangulo, float RotacaoGraus);
+
+    private readonly List<IconeColocado> _iconesColocados = [];
+
+    /// <summary>Um texto já confirmado/gravado numa camada — guardado só em memória, NESTA sessão do
+    /// app, pra permitir tocar nele depois (segurar ~1s) e pegar de volta pra mover/girar/
+    /// redimensionar (ver <see cref="IniciarEdicaoTextoColocado"/>). Ao contrário do ícone, o texto
+    /// pode estar em QUALQUER camada (a que estava ativa quando foi escrito) — por isso guarda
+    /// CamadaId, além do Acao original (pra remover/repor em _historico sem bagunçar desfazer/
+    /// refazer) e o retângulo (hit-test/preview).</summary>
+    private sealed record TextoColocado(Guid Id, Guid CamadaId, AcaoTexto Acao, SKRect Retangulo);
+
+    private readonly List<TextoColocado> _textosColocados = [];
+
+    /// <summary>Disparado quando um toque longo (~1s) pega de volta um ícone já colocado pra editar
+    /// (ver <see cref="IniciarEdicaoIconeColocado"/>) — a Page assina isto pra mostrar a barra de
+    /// posicionamento (girar/A-/A+/confirmar/cancelar), mesma usada ao colocar um ícone novo.</summary>
+    public event EventHandler? IconeEmEdicaoIniciada;
+
+    /// <summary>Mesma ideia de <see cref="IconeEmEdicaoIniciada"/>, pro texto — ver
+    /// <see cref="IniciarEdicaoTextoColocado"/>.</summary>
+    public event EventHandler? TextoEmEdicaoIniciado;
+
     private ElementoPendente? _elementoPendente;
+
+    /// <summary>Enquanto o elemento pendente atual é um ícone PEGO DE VOLTA (não um novo, colocado
+    /// pelo menu) — guarda o estado original (posição/rotação) pra "Cancelar" conseguir regravar
+    /// exatamente onde estava, em vez de simplesmente perder o ícone. Null quando o pendente é um
+    /// ícone novo (aí cancelar só descarta, sem nada pra restaurar) ou um texto.</summary>
+    private IconeColocado? _iconeOriginalEmEdicao;
+
+    /// <summary>Mesma ideia de <see cref="_iconeOriginalEmEdicao"/>, pro texto.</summary>
+    private TextoColocado? _textoOriginalEmEdicao;
     private SKPoint? _ultimoPontoElementoPendente;
 
     public bool TemElementoPendente => _elementoPendente is not null;
@@ -496,13 +558,39 @@ public sealed class PlantaCanvasView : SKCanvasView
                 return;
         }
 
+        // Confirmar grava na posição NOVA — o snapshot da posição antiga (se havia, de um ícone/
+        // texto pego de volta) não serve mais pra nada.
+        _iconeOriginalEmEdicao = null;
+        _textoOriginalEmEdicao = null;
         _elementoPendente = null;
         InvalidateSurface();
     }
 
-    /// <summary>Descarta o elemento pendente sem desenhar nada na camada.</summary>
+    /// <summary>Descarta o elemento pendente. Se for um ícone/texto NOVO (colocado pelo menu/pela
+    /// ferramenta T), some sem mais nada. Se for um ícone/texto PEGO DE VOLTA de um já colocado (ver
+    /// <see cref="IniciarEdicaoIconeColocado"/>/<see cref="IniciarEdicaoTextoColocado"/>), precisa
+    /// regravar exatamente onde/como estava antes — senão "Cancelar" faria o elemento desaparecer da
+    /// planta de vez, o que não é "cancelar" coisa nenhuma.</summary>
     public void CancelarElementoPendente()
     {
+        if (_iconeOriginalEmEdicao is { } iconeOriginal)
+        {
+            RegravarIconeNaCamadaIcones(iconeOriginal);
+            _iconesColocados.Add(iconeOriginal);
+            _iconeOriginalEmEdicao = null;
+        }
+
+        if (_textoOriginalEmEdicao is { } textoOriginal)
+        {
+            RegravarTextoNaCamada(textoOriginal);
+            // Reaparece no fim do histórico (não exatamente na posição original entre outras ações)
+            // — imperceptível no resultado visual (a composição final é a mesma), só muda a ORDEM em
+            // que um desfazer subsequente desfaria as coisas, caso raro de acontecer na prática.
+            _historico.Add(textoOriginal.Acao);
+            _textosColocados.Add(textoOriginal);
+            _textoOriginalEmEdicao = null;
+        }
+
         _elementoPendente = null;
         _ultimoPontoElementoPendente = null;
         InvalidateSurface();
@@ -579,17 +667,19 @@ public sealed class PlantaCanvasView : SKCanvasView
         canvas.Restore();
     }
 
-    /// <summary>Grava o ícone confirmado direto na camada "Ícones" — SEMPRE nela, nunca em
-    /// CamadaAtivaId, é o motivo de existir a ferramenta (não depender de qual camada está ativa).
-    /// Resolvida pelo NOME em <see cref="Camadas"/> (cada CamadaDto já tem Nome) — a Page/ViewModel
-    /// garantem que essa camada sempre existe antes do usuário conseguir abrir o menu de ícones (ver
-    /// PlantaViewModel.CarregarAsync), então não precisa criar nada aqui.
+    /// <summary>Grava um ícone (novo ou recolocado após cancelar uma edição) direto na camada
+    /// "Ícones" — SEMPRE nela, nunca em CamadaAtivaId, é o motivo de existir a ferramenta (não
+    /// depender de qual camada está ativa). Resolvida pelo NOME em <see cref="Camadas"/> (cada
+    /// CamadaDto já tem Nome) — a Page/ViewModel garantem que essa camada sempre existe antes do
+    /// usuário conseguir abrir o menu de ícones (ver PlantaViewModel.CarregarAsync), então não
+    /// precisa criar nada aqui.
     ///
     /// Não entra em _historico/_desfeitas de propósito: desfazer/refazer hoje só sabe reconstruir a
     /// camada ATIVA (RedesenharDoHistorico usa CamadaAtivaId) — colocar o ícone lá faria um
     /// "desfazer" comum tentar repintá-lo em cima da camada errada. Corrigir um ícone errado hoje é
-    /// girar/redimensionar antes de confirmar, ou "Limpar camada" na própria Ícones.</summary>
-    private void AdicionarIcone(ElementoIconePendente icone)
+    /// girar/redimensionar antes de confirmar, "Limpar camada" na própria Ícones, ou segurar o dedo
+    /// nele (~1s) pra pegar de volta e mover/apagar — ver <see cref="IniciarEdicaoIconeColocado"/>.</summary>
+    private void GravarIconeNaCamadaIcones(SKPicture picture, SKRect retangulo, float rotacaoGraus)
     {
         var camadaIcones = Camadas?.FirstOrDefault(c => c.Nome == PlantaViewModel.NomeCamadaIcones);
         if (camadaIcones is null || ImagensPorCamada is null)
@@ -598,15 +688,286 @@ public sealed class PlantaCanvasView : SKCanvasView
         var bitmap = ObterOuCriarBitmapDaCamada(camadaIcones.Id);
         using var canvas = new SKCanvas(bitmap);
 
-        var pivo = new SKPoint(icone.Retangulo.MidX, icone.Retangulo.MidY);
+        var pivo = new SKPoint(retangulo.MidX, retangulo.MidY);
         canvas.Save();
-        if (icone.RotacaoGraus != 0f)
-            canvas.RotateDegrees(icone.RotacaoGraus, pivo.X, pivo.Y);
-        DesenharIconeNoRetangulo(canvas, icone.Picture, icone.Retangulo);
+        if (rotacaoGraus != 0f)
+            canvas.RotateDegrees(rotacaoGraus, pivo.X, pivo.Y);
+        DesenharIconeNoRetangulo(canvas, picture, retangulo);
         canvas.Restore();
 
         InvalidarComposicaoCache();
         DesenhoAlterado?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void AdicionarIcone(ElementoIconePendente icone)
+    {
+        GravarIconeNaCamadaIcones(icone.Picture, icone.Retangulo, icone.RotacaoGraus);
+        _iconesColocados.Add(new IconeColocado(Guid.NewGuid(), icone.Picture, icone.NomeArquivo, icone.Retangulo, icone.RotacaoGraus));
+    }
+
+    /// <summary>Regrava um ícone existente EXATAMENTE como estava — usado só quando "Cancelar" desfaz
+    /// uma edição iniciada por <see cref="IniciarEdicaoIconeColocado"/> (mesmo Id, pra continuar
+    /// identificável pra um toque/segurar futuro).</summary>
+    private void RegravarIconeNaCamadaIcones(IconeColocado icone) =>
+        GravarIconeNaCamadaIcones(icone.Picture, icone.Retangulo, icone.RotacaoGraus);
+
+    /// <summary>Apaga só a área do retângulo de um ícone colocado (transparente, respeitando a
+    /// rotação) — usado tanto por <see cref="ExcluirIconeColocado"/> (exclusão definitiva) quanto por
+    /// <see cref="IniciarEdicaoIconeColocado"/> (pega de volta pra editar, o retângulo alvo já vai
+    /// ficar coberto pelo preview do elemento pendente). De propósito NÃO reconstrói o bitmap inteiro
+    /// da camada: um ícone de uma sessão anterior (raster puro, sem entrada em _iconesColocados)
+    /// ficaria de fora de uma reconstrução completa e seria apagado sem querer.</summary>
+    private void ApagarIconeDoBitmap(IconeColocado icone)
+    {
+        var camadaIcones = Camadas?.FirstOrDefault(c => c.Nome == PlantaViewModel.NomeCamadaIcones);
+        if (camadaIcones is null || ImagensPorCamada is null || !ImagensPorCamada.TryGetValue(camadaIcones.Id, out var bitmap))
+            return;
+
+        using var canvas = new SKCanvas(bitmap);
+        using var paintApagar = new SKPaint { BlendMode = SKBlendMode.Clear };
+
+        var pivo = new SKPoint(icone.Retangulo.MidX, icone.Retangulo.MidY);
+        canvas.Save();
+        if (icone.RotacaoGraus != 0f)
+            canvas.RotateDegrees(icone.RotacaoGraus, pivo.X, pivo.Y);
+        canvas.DrawRect(SKRect.Inflate(icone.Retangulo, 2f, 2f), paintApagar);
+        canvas.Restore();
+
+        InvalidarComposicaoCache();
+    }
+
+    /// <summary>Disparado quando o usuário TOCA (sem arrastar) num ícone já colocado nesta sessão,
+    /// com a camada "Ícones" ativa — a Page assina isto pra perguntar se quer excluir.</summary>
+    public event EventHandler<Guid>? IconeTocado;
+
+    private const float ToleranciaTapIcone = 16f;
+    private SKPoint? _inicioToqueCamadaIcones;
+
+    /// <summary>Na camada "Ícones", o toque NUNCA desenha raster (ela só existe pra ícones colocados
+    /// pela ferramenta própria) — só detecta um TAP (sem arrasto, abaixo de ToleranciaTapIcone) sobre
+    /// um ícone rastreado e dispara <see cref="IconeTocado"/>. Chamado de dentro de OnTouch quando a
+    /// camada ativa é a Ícones, no lugar do desenho normal.</summary>
+    private void TratarToqueNaCamadaIcones(SKTouchEventArgs e, SKPoint ponto)
+    {
+        switch (e.ActionType)
+        {
+            case SKTouchAction.Pressed:
+                _inicioToqueCamadaIcones = ponto;
+                break;
+
+            case SKTouchAction.Released:
+                if (_inicioToqueCamadaIcones is { } inicio)
+                {
+                    var dx = ponto.X - inicio.X;
+                    var dy = ponto.Y - inicio.Y;
+                    if (MathF.Sqrt(dx * dx + dy * dy) <= ToleranciaTapIcone)
+                    {
+                        var iconeTocado = _iconesColocados.LastOrDefault(i => IconeContemPonto(i, ponto));
+                        if (iconeTocado is not null)
+                            IconeTocado?.Invoke(this, iconeTocado.Id);
+                    }
+                }
+                _inicioToqueCamadaIcones = null;
+                break;
+
+            case SKTouchAction.Cancelled:
+                _inicioToqueCamadaIcones = null;
+                break;
+        }
+    }
+
+    /// <summary>Testa se um ponto cai dentro de um retângulo rotacionado em torno de um pivô —
+    /// desfaz a rotação (gira o ponto de volta) pra testar contra o retângulo original, sem rotação.
+    /// Mesma conta usada tanto pro ícone (pivô = centro) quanto pro texto (pivô = canto
+    /// inferior-esquerdo, mesmo usado pra desenhar/girar os dois).</summary>
+    private static bool ContidoConsiderandoRotacao(SKRect retangulo, float rotacaoGraus, SKPoint pivo, SKPoint ponto)
+    {
+        if (rotacaoGraus == 0f)
+            return retangulo.Contains(ponto);
+
+        var anguloRad = -rotacaoGraus * MathF.PI / 180f;
+        var dx = ponto.X - pivo.X;
+        var dy = ponto.Y - pivo.Y;
+        var pontoGirado = new SKPoint(
+            pivo.X + dx * MathF.Cos(anguloRad) - dy * MathF.Sin(anguloRad),
+            pivo.Y + dx * MathF.Sin(anguloRad) + dy * MathF.Cos(anguloRad));
+
+        return retangulo.Contains(pontoGirado);
+    }
+
+    private static bool IconeContemPonto(IconeColocado icone, SKPoint ponto) =>
+        ContidoConsiderandoRotacao(icone.Retangulo, icone.RotacaoGraus, new SKPoint(icone.Retangulo.MidX, icone.Retangulo.MidY), ponto);
+
+    private static bool TextoContemPonto(TextoColocado texto, SKPoint ponto) =>
+        ContidoConsiderandoRotacao(texto.Retangulo, texto.Acao.RotacaoGraus, new SKPoint(texto.Retangulo.Left, texto.Retangulo.Bottom), ponto);
+
+    /// <summary>Exclui um ícone específico colocado nesta sessão — apaga só a área dele (ver
+    /// <see cref="ApagarIconeDoBitmap"/>), sem redesenhar mais nada.</summary>
+    public void ExcluirIconeColocado(Guid iconeId)
+    {
+        var indice = _iconesColocados.FindIndex(i => i.Id == iconeId);
+        if (indice < 0)
+            return;
+
+        var icone = _iconesColocados[indice];
+        _iconesColocados.RemoveAt(indice);
+        ApagarIconeDoBitmap(icone);
+
+        DesenhoAlterado?.Invoke(this, EventArgs.Empty);
+        InvalidateSurface();
+    }
+
+    private const double SegundosParaPegarElemento = 1.0;
+    private const float ToleranciaMovimentoPegarElemento = 12f;
+    private long? _ponteiroPegarElemento;
+    private SKPoint? _inicioPegarElemento;
+    private int _geracaoToquePegarElemento;
+
+    /// <summary>Detecta um toque parado (~1s) sobre um ícone OU texto já colocado, em QUALQUER modo/
+    /// camada ativa — sem precisar ligar o lápis nem selecionar a camada antes (pedido do usuário:
+    /// "e se tiver um modo de só eu manter apertado por 2s e aí selecionar o objeto, poder apagar ou
+    /// arrastar de novo" — depois estendido pra texto também). Chamado incondicionalmente no início
+    /// de OnTouch, como a pinça — só age se o dedo ficar parado (abaixo de
+    /// ToleranciaMovimentoPegarElemento) o tempo todo; qualquer arrasto ou soltar antes do tempo
+    /// cancela, sem interferir no gesto normal (desenho/pan/pinça). Ícone tem prioridade sobre texto
+    /// no raro caso de os dois se sobreporem no mesmo ponto.</summary>
+    private void AtualizarDeteccaoPegarElemento(SKTouchEventArgs e, SKPoint pontoNativo)
+    {
+        switch (e.ActionType)
+        {
+            case SKTouchAction.Pressed:
+                _ponteiroPegarElemento = e.Id;
+                _inicioPegarElemento = pontoNativo;
+                var geracao = ++_geracaoToquePegarElemento;
+
+                Dispatcher.DispatchDelayed(TimeSpan.FromSeconds(SegundosParaPegarElemento), () =>
+                {
+                    if (geracao != _geracaoToquePegarElemento || _inicioPegarElemento is not { } inicio || _elementoPendente is not null)
+                        return;
+
+                    var icone = _iconesColocados.LastOrDefault(i => IconeContemPonto(i, inicio));
+                    if (icone is not null)
+                    {
+                        IniciarEdicaoIconeColocado(icone);
+                        return;
+                    }
+
+                    var texto = _textosColocados.LastOrDefault(t => TextoContemPonto(t, inicio));
+                    if (texto is not null)
+                        IniciarEdicaoTextoColocado(texto);
+                });
+                break;
+
+            case SKTouchAction.Moved:
+                if (e.Id == _ponteiroPegarElemento && _inicioPegarElemento is { } inicioMov)
+                {
+                    var dx = pontoNativo.X - inicioMov.X;
+                    var dy = pontoNativo.Y - inicioMov.Y;
+                    if (MathF.Sqrt(dx * dx + dy * dy) > ToleranciaMovimentoPegarElemento)
+                        CancelarDeteccaoPegarElemento();
+                }
+                break;
+
+            case SKTouchAction.Released:
+            case SKTouchAction.Cancelled:
+                if (e.Id == _ponteiroPegarElemento)
+                    CancelarDeteccaoPegarElemento();
+                break;
+        }
+    }
+
+    private void CancelarDeteccaoPegarElemento()
+    {
+        _ponteiroPegarElemento = null;
+        _inicioPegarElemento = null;
+        _geracaoToquePegarElemento++;
+    }
+
+    /// <summary>"Pega de volta" um ícone já gravado: apaga o pixel dele da camada (ver
+    /// <see cref="ApagarIconeDoBitmap"/>) e o transforma num elemento pendente na posição/rotação
+    /// atuais, reaproveitando a mesma barra de girar/mover/A-/A+/confirmar/cancelar de sempre.
+    /// Guarda o estado original em <see cref="_iconeOriginalEmEdicao"/> — se o usuário cancelar, o
+    /// ícone volta pro lugar em vez de sumir (ver CancelarElementoPendente).</summary>
+    private void IniciarEdicaoIconeColocado(IconeColocado icone)
+    {
+        _iconesColocados.Remove(icone);
+        ApagarIconeDoBitmap(icone);
+        _iconeOriginalEmEdicao = icone;
+
+        _elementoPendente = new ElementoIconePendente
+        {
+            Picture = icone.Picture,
+            NomeArquivo = icone.NomeArquivo,
+            Retangulo = icone.Retangulo,
+            RotacaoGraus = icone.RotacaoGraus,
+        };
+
+        DesenhoAlterado?.Invoke(this, EventArgs.Empty);
+        InvalidateSurface();
+        IconeEmEdicaoIniciada?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>Apaga só a área do retângulo de um texto colocado (transparente, respeitando a
+    /// rotação em torno do canto inferior-esquerdo — mesmo pivô do desenho/hit-test) — usado só por
+    /// <see cref="IniciarEdicaoTextoColocado"/> (pega de volta pra editar).</summary>
+    private void ApagarTextoDoBitmap(TextoColocado texto)
+    {
+        if (ImagensPorCamada is null || !ImagensPorCamada.TryGetValue(texto.CamadaId, out var bitmap))
+            return;
+
+        using var canvas = new SKCanvas(bitmap);
+        using var paintApagar = new SKPaint { BlendMode = SKBlendMode.Clear };
+
+        var pivo = new SKPoint(texto.Retangulo.Left, texto.Retangulo.Bottom);
+        canvas.Save();
+        if (texto.Acao.RotacaoGraus != 0f)
+            canvas.RotateDegrees(texto.Acao.RotacaoGraus, pivo.X, pivo.Y);
+        canvas.DrawRect(SKRect.Inflate(texto.Retangulo, 2f, 2f), paintApagar);
+        canvas.Restore();
+
+        InvalidarComposicaoCache();
+    }
+
+    /// <summary>Regrava um texto existente EXATAMENTE como estava — usado só quando "Cancelar" desfaz
+    /// uma edição iniciada por <see cref="IniciarEdicaoTextoColocado"/>.</summary>
+    private void RegravarTextoNaCamada(TextoColocado texto)
+    {
+        if (ImagensPorCamada is null || !ImagensPorCamada.TryGetValue(texto.CamadaId, out var bitmap))
+            return;
+
+        using var canvas = new SKCanvas(bitmap);
+        DesenharAcao(canvas, texto.Acao);
+
+        InvalidarComposicaoCache();
+        DesenhoAlterado?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>"Pega de volta" um texto já gravado: tira ele de <see cref="_historico"/> (sem
+    /// bagunçar desfazer/refazer da camada onde estava — ver comentário em
+    /// <see cref="TextoColocado"/>), apaga o pixel dele (<see cref="ApagarTextoDoBitmap"/>) e o
+    /// transforma num elemento pendente na posição/rotação atuais, reaproveitando a mesma barra de
+    /// girar/mover/A-/A+/confirmar/cancelar de sempre. Guarda o estado original em
+    /// <see cref="_textoOriginalEmEdicao"/> — se o usuário cancelar, o texto volta pro lugar em vez
+    /// de sumir (ver CancelarElementoPendente).</summary>
+    private void IniciarEdicaoTextoColocado(TextoColocado texto)
+    {
+        _textosColocados.Remove(texto);
+        _historico.Remove(texto.Acao);
+        ApagarTextoDoBitmap(texto);
+        _textoOriginalEmEdicao = texto;
+
+        _elementoPendente = new ElementoTextoPendente
+        {
+            Texto = texto.Acao.Texto,
+            Cor = texto.Acao.Cor,
+            TamanhoFonte = texto.Acao.TamanhoFonte,
+            Retangulo = texto.Retangulo,
+            RotacaoGraus = texto.Acao.RotacaoGraus,
+        };
+
+        DesenhoAlterado?.Invoke(this, EventArgs.Empty);
+        InvalidateSurface();
+        TextoEmEdicaoIniciado?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>Toque enquanto há um elemento pendente: arrasta pra mover — nunca desenha na camada
@@ -671,10 +1032,22 @@ public sealed class PlantaCanvasView : SKCanvasView
 
         _historico.Add(acao);
         _desfeitas.Clear();
+        _textosColocados.Add(new TextoColocado(Guid.NewGuid(), camadaId, acao, RetanguloDoTexto(acao)));
 
         InvalidarComposicaoCache();
         DesenhoAlterado?.Invoke(this, EventArgs.Empty);
         InvalidateSurface();
+    }
+
+    /// <summary>Calcula o retângulo (canto inferior-esquerdo = pivô) de um AcaoTexto já gravado —
+    /// mesma conta usada em IniciarTextoPendente, extraída pra reuso no rastreio de
+    /// <see cref="_textosColocados"/> (hit-test do toque longo/preview).</summary>
+    private static SKRect RetanguloDoTexto(AcaoTexto acao)
+    {
+        using var fonte = new SKFont(SKTypeface.Default, acao.TamanhoFonte);
+        var largura = Math.Max(20f, fonte.MeasureText(acao.Texto));
+        var altura = acao.TamanhoFonte * 1.3f;
+        return new SKRect(acao.Posicao.X, acao.Posicao.Y - altura, acao.Posicao.X + largura, acao.Posicao.Y);
     }
 
     private void RedesenharDoHistorico()
@@ -685,12 +1058,30 @@ public sealed class PlantaCanvasView : SKCanvasView
         var bitmap = ObterOuCriarBitmapDaCamada(camadaId);
         using var canvas = new SKCanvas(bitmap);
         canvas.Clear(SKColors.Transparent);
+        if (PlantaOverlayRenderer.PodeDesenhar(_bitmapBaseHistorico))
+            canvas.DrawBitmap(_bitmapBaseHistorico, 0, 0);
         foreach (var acao in _historico)
             DesenharAcao(canvas, acao);
 
         InvalidarComposicaoCache();
         DesenhoAlterado?.Invoke(this, EventArgs.Empty);
         InvalidateSurface();
+    }
+
+    /// <summary>Tira a cópia do bitmap da camada agora ativa — ver comentário em
+    /// <see cref="_bitmapBaseHistorico"/>. Chamado sempre que CamadaAtivaId muda (ver
+    /// CamadaAtivaIdProperty).</summary>
+    private void CapturarBaselineHistorico(Guid? camadaId)
+    {
+        _bitmapBaseHistorico?.Dispose();
+        _bitmapBaseHistorico = null;
+
+        if (camadaId is not { } id || ImagensPorCamada is null)
+            return;
+
+        var atual = ObterOuCriarBitmapDaCamada(id);
+        if (PlantaOverlayRenderer.PodeDesenhar(atual))
+            _bitmapBaseHistorico = atual.Copy();
     }
 
     private static void DesenharAcao(SKCanvas canvas, AcaoDesenho acao)
@@ -870,11 +1261,17 @@ public sealed class PlantaCanvasView : SKCanvasView
             return;
         }
 
-        // Pinça (dois dedos) funciona em QUALQUER tela/modo — visualização geral (o ScrollView nativo
-        // cuida do resto) ou edição de camada (GerenciarPan cuida do arrasto de 1 dedo) — sem exigir
-        // nenhum modo ligado (pedido: a visualização geral não tinha essa função). Só age de fato
-        // quando o SEGUNDO dedo toca a tela; com 0 ou 1 dedo, não faz nada e deixa o toque seguir
-        // normalmente (desenho, GerenciarPan, ou nada — o ScrollView nativo assume na visualização).
+        // Observa (sem consumir o toque) se o dedo fica parado ~1s sobre um ícone OU texto já
+        // colocado, pra "pegar de volta" — funciona em QUALQUER modo/tela, mesmo durante pan/pinça/
+        // desenho normal, já que só reage se o toque ficar parado o tempo todo (ver
+        // AtualizarDeteccaoPegarElemento).
+        AtualizarDeteccaoPegarElemento(e, ConverterTelaParaNativo(e.Location));
+
+        // Pinça (dois dedos) funciona em QUALQUER tela/modo — visualização geral e edição de camada
+        // compartilham o mesmo mecanismo (canvas de tamanho fixo + PanX/PanY via GerenciarPan, ver
+        // comentário em PlantaPage.AplicarModoEdicaoUi) — sem exigir nenhum modo ligado. Só age de
+        // fato quando o SEGUNDO dedo toca a tela; com 0 ou 1 dedo, não faz nada e deixa o toque
+        // seguir normalmente (desenho ou GerenciarPan).
         if (AtualizarPinca(e))
         {
             e.Handled = true;
@@ -919,6 +1316,16 @@ public sealed class PlantaCanvasView : SKCanvasView
             ponto = new SKPoint(
                 Math.Clamp(ponto.X, 0, imagemBase.Width),
                 Math.Clamp(ponto.Y, 0, imagemBase.Height));
+        }
+
+        // A camada "Ícones" nunca recebe traço/texto manual — só existe pra ícones colocados pela
+        // ferramenta própria (ver AdicionarIcone). Aqui só detectamos um TAP sobre um ícone já
+        // colocado (nesta sessão) pra oferecer excluir; nada mais desenha nela.
+        if (camadaAtiva.Nome == PlantaViewModel.NomeCamadaIcones)
+        {
+            TratarToqueNaCamadaIcones(e, ponto);
+            e.Handled = true;
+            return;
         }
 
         if (ModoTexto)
