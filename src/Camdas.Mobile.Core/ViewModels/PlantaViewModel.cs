@@ -41,6 +41,12 @@ public partial class PlantaViewModel(IApiClient apiClient, ISalvadorGaleria salv
     public const string CorHidraulica = "#2E86DE";
     public const string CorEletrica = "#F1C40F";
 
+    /// <summary>Camada especial que guarda os ícones técnicos padronizados (ferramenta de ícones) —
+    /// criada automaticamente (ver <see cref="CarregarAsync"/>) se ainda não existir, e nunca pode
+    /// ser ocultada (ver <see cref="AlternarVisibilidadeAsync"/>): a ideia é o ícone nunca sumir da
+    /// composição, não importa o que o usuário fizer com as demais camadas.</summary>
+    public const string NomeCamadaIcones = "Ícones";
+
     /// <summary>Falso pras camadas pré-definidas (hidráulica/elétrica) — a paleta de cores fica
     /// escondida na barra de ferramentas e o traço sempre sai na cor fixa daquela camada.</summary>
     public bool PermiteEscolherCor => CamadaAtiva is not { Nome: NomeCamadaHidraulica or NomeCamadaEletrica };
@@ -106,6 +112,8 @@ public partial class PlantaViewModel(IApiClient apiClient, ISalvadorGaleria salv
             foreach (var camada in Planta.Camadas)
                 Camadas.Add(camada);
 
+            await GarantirCamadaIconesAsync();
+
             CamadaAtiva = Camadas.FirstOrDefault(c => c.Id == camadaAtivaAnteriorId) ?? Camadas.FirstOrDefault();
 
             await CarregarImagensAsync();
@@ -118,6 +126,19 @@ public partial class PlantaViewModel(IApiClient apiClient, ISalvadorGaleria salv
         {
             EstaCarregando = false;
         }
+    }
+
+    /// <summary>Garante que a camada "Ícones" sempre existe pra essa planta — cria uma vez, na
+    /// primeira vez que a planta é aberta sem ela (plantas antigas, criadas antes dessa ferramenta
+    /// existir). Não usa <see cref="CriarCamadaAsync"/> de propósito: aquele também troca
+    /// <see cref="CamadaAtiva"/>, e abrir uma planta nunca deve trocar a camada selecionada sozinho.</summary>
+    private async Task GarantirCamadaIconesAsync()
+    {
+        if (Planta is null || Camadas.Any(c => c.Nome == NomeCamadaIcones))
+            return;
+
+        var camada = await apiClient.CriarCamadaAsync(Planta.Id, NomeCamadaIcones);
+        Camadas.Add(camada);
     }
 
     private async Task CarregarImagensAsync()
@@ -325,7 +346,10 @@ public partial class PlantaViewModel(IApiClient apiClient, ISalvadorGaleria salv
     [RelayCommand]
     private async Task AlternarVisibilidadeAsync(CamadaDto camada)
     {
-        if (Planta is null)
+        // A camada "Ícones" nunca pode ser ocultada (ver NomeCamadaIcones) — no-op silencioso em vez
+        // de erro, já que o botão de olho dela fica desabilitado na tela (ver PlantaPage.xaml), mas
+        // vale a defesa aqui também caso algo dispare o comando por outro caminho.
+        if (Planta is null || camada.Nome == NomeCamadaIcones)
             return;
 
         try

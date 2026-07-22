@@ -1,6 +1,7 @@
 using System.Collections.Specialized;
 using Camdas.Contracts;
 using Camdas.Mobile.Rendering;
+using Camdas.Mobile.ViewModels;
 using SkiaSharp;
 using SkiaSharp.Views.Maui;
 using SkiaSharp.Views.Maui.Controls;
@@ -331,16 +332,29 @@ public sealed class PlantaCanvasView : SKCanvasView
         RedesenharDoHistorico();
     }
 
-    /// <summary>Texto ainda "solto" na tela — movível até o usuário confirmar, quando então é
-    /// desenhado (raster) na camada ativa igual a um traço normal. Coordenadas sempre na resolução
-    /// nativa da imagem base, mesmo espaço usado pelo restante do desenho.</summary>
-    private sealed class ElementoPendente
+    /// <summary>Algo ainda "solto" na tela — movível/girável/redimensionável até o usuário confirmar
+    /// (texto ou ícone; ver <see cref="ElementoTextoPendente"/>/<see cref="ElementoIconePendente"/>).
+    /// Coordenadas sempre na resolução nativa da imagem base, mesmo espaço usado pelo resto do
+    /// desenho. Arrastar/girar (<see cref="TratarTouchElementoPendente"/>/<see cref="RotacionarElementoPendente"/>)
+    /// são genéricos (só mexem em Retangulo/RotacaoGraus); redimensionar e desenhar variam por
+    /// tipo — ver <see cref="RedimensionarElementoPendente"/>/<see cref="DesenharElementoPendente"/>.</summary>
+    private abstract class ElementoPendente
+    {
+        public SKRect Retangulo;
+        public float RotacaoGraus;
+    }
+
+    private sealed class ElementoTextoPendente : ElementoPendente
     {
         public required string Texto;
         public string Cor = "#000000";
         public float TamanhoFonte;
-        public SKRect Retangulo;
-        public float RotacaoGraus;
+    }
+
+    private sealed class ElementoIconePendente : ElementoPendente
+    {
+        public required SKPicture Picture;
+        public required string NomeArquivo;
     }
 
     private ElementoPendente? _elementoPendente;
@@ -348,8 +362,9 @@ public sealed class PlantaCanvasView : SKCanvasView
 
     public bool TemElementoPendente => _elementoPendente is not null;
 
-    /// <summary>Gira o texto pendente em passos de 90° (0/90/180/270) em torno do próprio ponto de
-    /// ancoragem — sem efeito se não houver elemento pendente.</summary>
+    /// <summary>Gira o elemento pendente (texto ou ícone) em passos de 90° (0/90/180/270) em torno do
+    /// próprio ponto de ancoragem — sem efeito se não houver elemento pendente. Genérico: só mexe em
+    /// RotacaoGraus, o pivô real (canto pro texto, centro pro ícone) é resolvido na hora de desenhar.</summary>
     public void RotacionarElementoPendente()
     {
         if (_elementoPendente is not { } pendente)
@@ -361,29 +376,56 @@ public sealed class PlantaCanvasView : SKCanvasView
 
     private const float TamanhoFontePendenteMinimo = 8f;
     private const float TamanhoFontePendenteMaximo = 300f;
+    private const float FatorRedimensionamentoIcone = 1.15f;
+    private const float TamanhoIconePendenteMinimo = 16f;
+    private const float TamanhoIconePendenteMaximo = 4000f;
 
-    /// <summary>Aumenta/diminui o tamanho da fonte do texto pendente (delta em pontos, negativo
-    /// diminui) — mesma ideia do girar: só afeta o elemento ainda solto, antes de confirmar. Mantém o
-    /// ponto de ancoragem (canto inferior esquerdo do retângulo, o mesmo usado por
-    /// <see cref="ConfirmarElementoPendente"/> e no desenho final) fixo — só a largura/altura da
-    /// moldura crescem/encolhem a partir dele, senão o texto "pularia" de posição a cada ajuste.</summary>
+    /// <summary>Aumenta/diminui o elemento pendente — texto remede a fonte (delta em pontos,
+    /// mantendo o canto inferior-esquerdo fixo, mesmo pivô usado ao confirmar/desenhar); ícone
+    /// escala ~15% por chamada mantendo a proporção e o CENTRO fixo (não tem "linha de base" como
+    /// texto, então crescer a partir do meio é o que parece natural pra um selo/carimbo). O sinal de
+    /// deltaPontos é o que importa pro ícone (positivo cresce, negativo encolhe) — os mesmos botões
+    /// A+/A- da barra de posicionamento (que passam +4/-4) servem pros dois tipos sem mudar nada na
+    /// Page.</summary>
     public void RedimensionarElementoPendente(float deltaPontos)
     {
-        if (_elementoPendente is not { } pendente)
+        switch (_elementoPendente)
+        {
+            case ElementoTextoPendente texto:
+                RedimensionarTexto(texto, deltaPontos);
+                InvalidateSurface();
+                break;
+            case ElementoIconePendente icone:
+                RedimensionarIcone(icone, deltaPontos);
+                InvalidateSurface();
+                break;
+        }
+    }
+
+    private static void RedimensionarTexto(ElementoTextoPendente texto, float deltaPontos)
+    {
+        var novoTamanho = Math.Clamp(texto.TamanhoFonte + deltaPontos, TamanhoFontePendenteMinimo, TamanhoFontePendenteMaximo);
+        if (novoTamanho == texto.TamanhoFonte)
             return;
 
-        var novoTamanho = Math.Clamp(pendente.TamanhoFonte + deltaPontos, TamanhoFontePendenteMinimo, TamanhoFontePendenteMaximo);
-        if (novoTamanho == pendente.TamanhoFonte)
-            return;
-
-        var ancora = new SKPoint(pendente.Retangulo.Left, pendente.Retangulo.Bottom);
+        var ancora = new SKPoint(texto.Retangulo.Left, texto.Retangulo.Bottom);
         using var fonte = new SKFont(SKTypeface.Default, novoTamanho);
-        var largura = Math.Max(20f, fonte.MeasureText(pendente.Texto));
+        var largura = Math.Max(20f, fonte.MeasureText(texto.Texto));
         var altura = novoTamanho * 1.3f;
 
-        pendente.TamanhoFonte = novoTamanho;
-        pendente.Retangulo = new SKRect(ancora.X, ancora.Y - altura, ancora.X + largura, ancora.Y);
-        InvalidateSurface();
+        texto.TamanhoFonte = novoTamanho;
+        texto.Retangulo = new SKRect(ancora.X, ancora.Y - altura, ancora.X + largura, ancora.Y);
+    }
+
+    private static void RedimensionarIcone(ElementoIconePendente icone, float deltaPontos)
+    {
+        var fator = deltaPontos >= 0 ? FatorRedimensionamentoIcone : 1f / FatorRedimensionamentoIcone;
+        var novaLargura = Math.Clamp(icone.Retangulo.Width * fator, TamanhoIconePendenteMinimo, TamanhoIconePendenteMaximo);
+        var proporcao = icone.Retangulo.Width > 0 ? icone.Retangulo.Height / icone.Retangulo.Width : 1f;
+        var novaAltura = novaLargura * proporcao;
+
+        var centro = new SKPoint(icone.Retangulo.MidX, icone.Retangulo.MidY);
+        icone.Retangulo = SKRect.Create(centro.X - novaLargura / 2f, centro.Y - novaAltura / 2f, novaLargura, novaAltura);
     }
 
     /// <summary>Começa a posicionar um texto — aparece "solto" (com moldura) no ponto tocado, pra
@@ -394,7 +436,7 @@ public sealed class PlantaCanvasView : SKCanvasView
         var largura = Math.Max(20f, fonte.MeasureText(texto));
         var altura = tamanhoFonte * 1.3f;
 
-        _elementoPendente = new ElementoPendente
+        _elementoPendente = new ElementoTextoPendente
         {
             Texto = texto,
             Cor = cor,
@@ -404,16 +446,55 @@ public sealed class PlantaCanvasView : SKCanvasView
         InvalidateSurface();
     }
 
-    /// <summary>Desenha o texto pendente (na posição atual) na camada ativa, igual a um traço normal,
-    /// e encerra o modo de posicionamento.</summary>
+    private const float TamanhoIconePendentePadrao = 64f;
+
+    /// <summary>Começa a posicionar um ícone — aparece "solto" (com moldura) CENTRADO no ponto
+    /// tocado (diferente do texto, que ancora no canto — um ícone/selo faz mais sentido centrado no
+    /// dedo), mantendo a proporção real do SVG. Ver <see cref="ConfirmarElementoPendente"/>.</summary>
+    public void IniciarIconePendente(SKPicture picture, string nomeArquivo, SKPoint posicaoInicial)
+    {
+        // Travado dentro dos limites da planta (mesma regra do desenho normal — ver OnTouch) — aqui
+        // não passa pelo OnTouch (o menu de ícones não parte de um toque no canvas), então precisa
+        // do próprio clamp.
+        if (ImagemBase is { } imagemBaseClamp)
+        {
+            posicaoInicial = new SKPoint(
+                Math.Clamp(posicaoInicial.X, 0, imagemBaseClamp.Width),
+                Math.Clamp(posicaoInicial.Y, 0, imagemBaseClamp.Height));
+        }
+
+        var origem = picture.CullRect;
+        var proporcao = origem.Width > 0 ? origem.Height / origem.Width : 1f;
+        var largura = TamanhoIconePendentePadrao;
+        var altura = TamanhoIconePendentePadrao * proporcao;
+
+        _elementoPendente = new ElementoIconePendente
+        {
+            Picture = picture,
+            NomeArquivo = nomeArquivo,
+            Retangulo = SKRect.Create(posicaoInicial.X - largura / 2f, posicaoInicial.Y - altura / 2f, largura, altura),
+        };
+        InvalidateSurface();
+    }
+
+    /// <summary>Desenha/grava o elemento pendente (na posição/rotação/tamanho atuais) e encerra o
+    /// modo de posicionamento — texto vai pra CamadaAtivaId (igual sempre), ícone vai SEMPRE pra
+    /// camada "Ícones" (ver <see cref="AdicionarIcone"/>), não importa qual camada esteja ativa.</summary>
     public void ConfirmarElementoPendente()
     {
-        if (_elementoPendente is not { } pendente)
-            return;
-
-        AdicionarTexto(
-            pendente.Texto, new SKPoint(pendente.Retangulo.Left, pendente.Retangulo.Bottom),
-            pendente.Cor, pendente.TamanhoFonte, pendente.RotacaoGraus);
+        switch (_elementoPendente)
+        {
+            case ElementoTextoPendente texto:
+                AdicionarTexto(
+                    texto.Texto, new SKPoint(texto.Retangulo.Left, texto.Retangulo.Bottom),
+                    texto.Cor, texto.TamanhoFonte, texto.RotacaoGraus);
+                break;
+            case ElementoIconePendente icone:
+                AdicionarIcone(icone);
+                break;
+            default:
+                return;
+        }
 
         _elementoPendente = null;
         InvalidateSurface();
@@ -429,24 +510,103 @@ public sealed class PlantaCanvasView : SKCanvasView
 
     private void DesenharElementoPendente(SKCanvas canvas, ElementoPendente pendente)
     {
+        switch (pendente)
+        {
+            case ElementoTextoPendente texto:
+                DesenharTextoPendente(canvas, texto);
+                break;
+            case ElementoIconePendente icone:
+                DesenharIconePendente(canvas, icone);
+                break;
+        }
+    }
+
+    private void DesenharTextoPendente(SKCanvas canvas, ElementoTextoPendente texto)
+    {
         // Mesmo pivô (ponto de ancoragem, canto inferior esquerdo) usado na hora de confirmar — o
         // preview aqui precisa bater exatamente com o resultado final desenhado em AdicionarTexto.
-        var pivo = new SKPoint(pendente.Retangulo.Left, pendente.Retangulo.Bottom);
+        var pivo = new SKPoint(texto.Retangulo.Left, texto.Retangulo.Bottom);
 
         canvas.Save();
-        if (pendente.RotacaoGraus != 0f)
-            canvas.RotateDegrees(pendente.RotacaoGraus, pivo.X, pivo.Y);
+        if (texto.RotacaoGraus != 0f)
+            canvas.RotateDegrees(texto.RotacaoGraus, pivo.X, pivo.Y);
 
-        using var paintTexto = new SKPaint { IsAntialias = true, Color = SKColor.Parse(pendente.Cor) };
-        using var fonte = new SKFont(SKTypeface.Default, pendente.TamanhoFonte);
-        canvas.DrawText(pendente.Texto, pivo.X, pivo.Y, fonte, paintTexto);
+        using var paintTexto = new SKPaint { IsAntialias = true, Color = SKColor.Parse(texto.Cor) };
+        using var fonte = new SKFont(SKTypeface.Default, texto.TamanhoFonte);
+        canvas.DrawText(texto.Texto, pivo.X, pivo.Y, fonte, paintTexto);
 
-        // Espessura dividida pelo Zoom pra moldura ter sempre o mesmo tamanho na tela, independente
-        // do nível de zoom (o canvas já está escalado por Zoom neste ponto).
+        DesenharMolduraPendente(canvas, texto.Retangulo);
+        canvas.Restore();
+    }
+
+    private void DesenharIconePendente(SKCanvas canvas, ElementoIconePendente icone)
+    {
+        // Mesmo pivô (centro do retângulo) usado na hora de confirmar (ver AdicionarIcone) — o
+        // preview aqui precisa bater exatamente com o resultado final gravado na camada "Ícones".
+        var pivo = new SKPoint(icone.Retangulo.MidX, icone.Retangulo.MidY);
+
+        canvas.Save();
+        if (icone.RotacaoGraus != 0f)
+            canvas.RotateDegrees(icone.RotacaoGraus, pivo.X, pivo.Y);
+
+        DesenharIconeNoRetangulo(canvas, icone.Picture, icone.Retangulo);
+        DesenharMolduraPendente(canvas, icone.Retangulo);
+        canvas.Restore();
+    }
+
+    // Espessura dividida pelo Zoom pra moldura ter sempre o mesmo tamanho na tela, independente do
+    // nível de zoom (o canvas já está escalado por Zoom neste ponto).
+    private void DesenharMolduraPendente(SKCanvas canvas, SKRect retangulo)
+    {
         var escala = Math.Max(Zoom, 0.05f);
         using var borda = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Stroke, StrokeWidth = 2f / escala, Color = SKColors.DeepSkyBlue };
-        canvas.DrawRect(pendente.Retangulo, borda);
+        canvas.DrawRect(retangulo, borda);
+    }
+
+    /// <summary>Desenha o SKPicture do SVG escalado (mantendo a proporção, já resolvida em
+    /// IniciarIconePendente) pra caber exatamente no retângulo alvo, na posição/tamanho atuais —
+    /// reaproveitado tanto pelo preview (<see cref="DesenharIconePendente"/>) quanto pela gravação
+    /// final (<see cref="AdicionarIcone"/>), garantindo que os dois batem pixel a pixel.</summary>
+    private static void DesenharIconeNoRetangulo(SKCanvas canvas, SKPicture picture, SKRect retangulo)
+    {
+        var origem = picture.CullRect;
+        canvas.Save();
+        canvas.Translate(retangulo.Left, retangulo.Top);
+        if (origem.Width > 0 && origem.Height > 0)
+            canvas.Scale(retangulo.Width / origem.Width, retangulo.Height / origem.Height);
+        canvas.Translate(-origem.Left, -origem.Top);
+        canvas.DrawPicture(picture);
         canvas.Restore();
+    }
+
+    /// <summary>Grava o ícone confirmado direto na camada "Ícones" — SEMPRE nela, nunca em
+    /// CamadaAtivaId, é o motivo de existir a ferramenta (não depender de qual camada está ativa).
+    /// Resolvida pelo NOME em <see cref="Camadas"/> (cada CamadaDto já tem Nome) — a Page/ViewModel
+    /// garantem que essa camada sempre existe antes do usuário conseguir abrir o menu de ícones (ver
+    /// PlantaViewModel.CarregarAsync), então não precisa criar nada aqui.
+    ///
+    /// Não entra em _historico/_desfeitas de propósito: desfazer/refazer hoje só sabe reconstruir a
+    /// camada ATIVA (RedesenharDoHistorico usa CamadaAtivaId) — colocar o ícone lá faria um
+    /// "desfazer" comum tentar repintá-lo em cima da camada errada. Corrigir um ícone errado hoje é
+    /// girar/redimensionar antes de confirmar, ou "Limpar camada" na própria Ícones.</summary>
+    private void AdicionarIcone(ElementoIconePendente icone)
+    {
+        var camadaIcones = Camadas?.FirstOrDefault(c => c.Nome == PlantaViewModel.NomeCamadaIcones);
+        if (camadaIcones is null || ImagensPorCamada is null)
+            return;
+
+        var bitmap = ObterOuCriarBitmapDaCamada(camadaIcones.Id);
+        using var canvas = new SKCanvas(bitmap);
+
+        var pivo = new SKPoint(icone.Retangulo.MidX, icone.Retangulo.MidY);
+        canvas.Save();
+        if (icone.RotacaoGraus != 0f)
+            canvas.RotateDegrees(icone.RotacaoGraus, pivo.X, pivo.Y);
+        DesenharIconeNoRetangulo(canvas, icone.Picture, icone.Retangulo);
+        canvas.Restore();
+
+        InvalidarComposicaoCache();
+        DesenhoAlterado?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>Toque enquanto há um elemento pendente: arrasta pra mover — nunca desenha na camada

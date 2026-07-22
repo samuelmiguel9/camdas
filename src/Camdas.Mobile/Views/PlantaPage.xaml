@@ -83,6 +83,8 @@
                             BackgroundColor="Transparent" TextColor="#333" Clicked="OnAlternarModoTextoClicked" />
                     <Button x:Name="BotaoDesenhar" Text="✏️" FontSize="18" Padding="8,0"
                             BackgroundColor="Transparent" TextColor="#333" Clicked="OnAlternarModoDesenharClicked" />
+                    <Button Text="🧩" FontSize="18" Padding="8,0"
+                            BackgroundColor="Transparent" TextColor="#333" Clicked="OnAbrirMenuIconesClicked" />
                     <ImageButton x:Name="BotaoBorracha" Source="eraser.png" WidthRequest="28" HeightRequest="28"
                                  Padding="4" BackgroundColor="Transparent" Clicked="OnAlternarBorrachaClicked" />
                     <BoxView WidthRequest="1" HeightRequest="24" Color="#D8D0C0" />
@@ -118,7 +120,7 @@
              OnConfirmarElementoPendenteClicked/OnCancelarElementoPendenteClicked. -->
         <VerticalStackLayout x:Name="BarraPosicionamento" Grid.Row="3" Spacing="6" IsVisible="False"
                              HorizontalOptions="Center">
-            <Label Text="Arraste o texto pra posicionar"
+            <Label x:Name="LabelPosicionamento" Text="Arraste pra posicionar"
                    FontSize="12" TextColor="#333" HorizontalOptions="Center" />
             <HorizontalStackLayout Spacing="10" HorizontalOptions="Center">
                 <Button Text="↻ Girar 90°" Clicked="OnRotacionarElementoPendenteClicked" />
@@ -141,7 +143,16 @@
                 <CollectionView ItemsSource="{Binding Camadas}" BackgroundColor="Transparent">
                     <CollectionView.ItemTemplate>
                         <DataTemplate x:DataType="contracts:CamadaDto">
-                            <Grid Padding="6,4" ColumnDefinitions="32,36,*,32,24" ColumnSpacing="6" RowDefinitions="Auto" BackgroundColor="Transparent">
+                            <!-- Destaque visual (fundo azulado) na camada que está sendo editada agora —
+                                 sem isto não dava pra saber, só de olhar a lista, qual delas o toque no
+                                 canvas está desenhando (pedido: "não está visual"). -->
+                            <Grid Padding="6,4" ColumnDefinitions="32,36,*,32,24" ColumnSpacing="6" RowDefinitions="Auto">
+                                <Grid.BackgroundColor>
+                                    <MultiBinding Converter="{StaticResource CamadaAtivaParaCorConverter}">
+                                        <Binding Path="Id" />
+                                        <Binding Path="BindingContext.CamadaAtiva.Id" Source="{RelativeSource AncestorType={x:Type ContentPage}}" />
+                                    </MultiBinding>
+                                </Grid.BackgroundColor>
                                 <Grid.GestureRecognizers>
                                     <TapGestureRecognizer
                                         Command="{Binding BindingContext.SelecionarCamadaCommand, Source={RelativeSource AncestorType={x:Type ContentPage}}}"
@@ -153,10 +164,20 @@
                                 <!-- Olho: sempre mostra um glifo (aberto/fechado) pra permanecer visível e clicável
                                      mesmo com a camada oculta — antes sumia por completo e ficava impossível achar
                                      o botão pra reexibir a camada. -->
+                                <!-- A camada "Ícones" nunca pode ser ocultada (ferramenta de ícones) — o
+                                     próprio botão de olho fica desabilitado e apagado nessa linha, pra ficar
+                                     visualmente claro que não dá pra tocar. -->
                                 <Button Grid.Column="0" Text="{Binding Visivel, Converter={StaticResource BoolParaTextoConverter}, ConverterParameter='👁;🚫'}"
                                         FontSize="16" TextColor="#DCDCDC" BackgroundColor="Transparent" Padding="0" BorderWidth="0"
                                         Command="{Binding BindingContext.AlternarVisibilidadeCommand, Source={RelativeSource AncestorType={x:Type ContentPage}}}"
-                                        CommandParameter="{Binding .}" />
+                                        CommandParameter="{Binding .}">
+                                    <Button.Triggers>
+                                        <DataTrigger TargetType="Button" Binding="{Binding Nome}" Value="Ícones">
+                                            <Setter Property="IsEnabled" Value="False" />
+                                            <Setter Property="Opacity" Value="0.35" />
+                                        </DataTrigger>
+                                    </Button.Triggers>
+                                </Button>
 
                                 <views:CamadaThumbnailView Grid.Column="1" WidthRequest="32" HeightRequest="32"
                                         CamadaId="{Binding Id}"
@@ -265,6 +286,39 @@
 
                         <Button Text="Fechar" FontSize="12" Padding="6,4"
                                 Command="{Binding BindingContext.FecharMenuCamadaCommand, Source={RelativeSource AncestorType={x:Type ContentPage}}}" />
+                    </VerticalStackLayout>
+                </ScrollView>
+            </Border>
+        </Grid>
+
+        <!-- Menu de escolha do ícone (ferramenta de ícones): mesmo estilo do menu de opções de
+             camada acima, mas com estado local (code-behind), já que é só uma escolha transitória
+             antes de posicionar — não precisa virar propriedade do ViewModel. Cada botão chama o
+             mesmo handler (CommandParameter leva o nome do arquivo, mesmo padrão já usado na paleta
+             de cores — ver OnCorClicked). -->
+        <Grid x:Name="MenuIcones" Grid.Row="0" Grid.RowSpan="6" BackgroundColor="Transparent" IsVisible="False">
+            <Grid.GestureRecognizers>
+                <TapGestureRecognizer Tapped="OnFecharMenuIconesTapped" />
+            </Grid.GestureRecognizers>
+
+            <Border Padding="10" Margin="12" BackgroundColor="#2E2E2E" Stroke="#1E1E1E" StrokeShape="RoundRectangle 8"
+                    VerticalOptions="Center" HorizontalOptions="Center" WidthRequest="220" MaximumHeightRequest="400"
+                    Opacity="0.97">
+                <Border.GestureRecognizers>
+                    <TapGestureRecognizer />
+                </Border.GestureRecognizers>
+
+                <ScrollView>
+                    <VerticalStackLayout Spacing="8">
+                        <Label Text="Escolha um ícone" FontAttributes="Bold" FontSize="13" TextColor="White" />
+                        <Button Text="Água fria" FontSize="12" Padding="6,4" CommandParameter="agua_fria" Clicked="OnEscolherIconeClicked" />
+                        <Button Text="Água quente" FontSize="12" Padding="6,4" CommandParameter="agua_quente" Clicked="OnEscolherIconeClicked" />
+                        <Button Text="Esgoto" FontSize="12" Padding="6,4" CommandParameter="esgoto" Clicked="OnEscolherIconeClicked" />
+                        <Button Text="Interruptor" FontSize="12" Padding="6,4" CommandParameter="interruptor" Clicked="OnEscolherIconeClicked" />
+                        <Button Text="Ponto de gás" FontSize="12" Padding="6,4" CommandParameter="ponto_de_gas" Clicked="OnEscolherIconeClicked" />
+                        <Button Text="Tomada simples" FontSize="12" Padding="6,4" CommandParameter="tomada_simples" Clicked="OnEscolherIconeClicked" />
+                        <Button Text="Tomada dupla" FontSize="12" Padding="6,4" CommandParameter="tomada_dupla" Clicked="OnEscolherIconeClicked" />
+                        <Button Text="Cancelar" FontSize="12" Padding="6,4" Clicked="OnFecharMenuIconesClicked" />
                     </VerticalStackLayout>
                 </ScrollView>
             </Border>

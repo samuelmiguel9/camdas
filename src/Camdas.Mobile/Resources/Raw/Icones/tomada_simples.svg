@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+
+  <g fill="none" stroke="#B8B8B8" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+
+    <!-- Espelho da tomada -->
+    <path d="
+      M 38 30
+      Q 64 18 90 30
+      L 90 94
+      Q 64 108 38 94
+      Z"></path>
+
+    <!-- Módulo -->
+    <rect x="50" y="53" width="28" height="22" rx="2"></rect>
+
+    <!-- Furos -->
+    <circle cx="59" cy="64" r="2"></circle>
+    <circle cx="69" cy="64" r="2"></circle>
+
+  </g>
+</svg>

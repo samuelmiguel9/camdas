@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using Camdas.Mobile.ViewModels;
 using Camdas.Contracts;
+using Camdas.Mobile.Services;
 using SkiaSharp;
 
 namespace Camdas.Mobile.Views;
@@ -9,15 +10,17 @@ namespace Camdas.Mobile.Views;
 public partial class PlantaPage : ContentPage
 {
     private readonly PlantaViewModel _viewModel;
+    private readonly IconeSvgCatalogo _iconeCatalogo;
     private bool _zoomAjustadoNoCarregamento;
     private CamadaDto? _camadaArrastada;
 
     public string PlantaId { get; set; } = string.Empty;
 
-    public PlantaPage(PlantaViewModel viewModel)
+    public PlantaPage(PlantaViewModel viewModel, IconeSvgCatalogo iconeCatalogo)
     {
         InitializeComponent();
         _viewModel = viewModel;
+        _iconeCatalogo = iconeCatalogo;
         BindingContext = viewModel;
 
         // Entrar/sair do modo de edição (ex.: tocar numa camada dispara SelecionarCamadaCommand no
@@ -461,11 +464,12 @@ public partial class PlantaPage : ContentPage
             return;
 
         Canvas.IniciarTextoPendente(texto, _viewModel.CorTraco, tamanhoFonte: Math.Max(24f, _viewModel.EspessuraTraco * 4), ponto);
-        MostrarBarraPosicionamento();
+        MostrarBarraPosicionamento("Arraste o texto pra posicionar");
     }
 
-    private void MostrarBarraPosicionamento()
+    private void MostrarBarraPosicionamento(string legenda)
     {
+        LabelPosicionamento.Text = legenda;
         BarraFerramentasEdicao.IsVisible = false;
         BarraPosicionamento.IsVisible = true;
     }
@@ -492,5 +496,35 @@ public partial class PlantaPage : ContentPage
     {
         Canvas.CancelarElementoPendente();
         OcultarBarraPosicionamento();
+    }
+
+    // --- Ferramenta de ícones ---
+
+    private void OnAbrirMenuIconesClicked(object? sender, EventArgs e) => MenuIcones.IsVisible = true;
+
+    private void OnFecharMenuIconesTapped(object? sender, TappedEventArgs e) => MenuIcones.IsVisible = false;
+
+    private void OnFecharMenuIconesClicked(object? sender, EventArgs e) => MenuIcones.IsVisible = false;
+
+    /// <summary>Escolhido um ícone no menu, carrega o SVG (cacheado depois da primeira vez — ver
+    /// IconeSvgCatalogo) e começa o posicionamento, centrado no meio da área visível atual (não tem
+    /// um "toque no canvas" de onde partir, diferente do texto — a escolha vem de um menu).</summary>
+    private async void OnEscolherIconeClicked(object? sender, EventArgs e)
+    {
+        if (sender is not Button { CommandParameter: string nomeArquivo })
+            return;
+
+        MenuIcones.IsVisible = false;
+
+        var picture = await _iconeCatalogo.ObterAsync(nomeArquivo);
+
+        var centroTelaX = (float)(Canvas.Width / 2);
+        var centroTelaY = (float)(Canvas.Height / 2);
+        var pontoNativo = Canvas.Zoom > 0
+            ? new SKPoint((centroTelaX - Canvas.PanX) / Canvas.Zoom, (centroTelaY - Canvas.PanY) / Canvas.Zoom)
+            : new SKPoint(centroTelaX, centroTelaY);
+
+        Canvas.IniciarIconePendente(picture, nomeArquivo, pontoNativo);
+        MostrarBarraPosicionamento("Arraste o ícone pra posicionar");
     }
 }

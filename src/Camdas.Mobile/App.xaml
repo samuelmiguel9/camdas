@@ -15,6 +15,7 @@
             <conv:BoolParaTextoConverter x:Key="BoolParaTextoConverter" />
             <conv:ObjetoNuloParaBoolConverter x:Key="ObjetoNuloParaBoolConverter" />
             <conv:BytesParaImageSourceConverter x:Key="BytesParaImageSourceConverter" />
+            <conv:CamadaAtivaParaCorConverter x:Key="CamadaAtivaParaCorConverter" />
         </ResourceDictionary>
     </Application.Resources>
 </Application>
