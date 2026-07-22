@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using Camdas.Mobile.ViewModels;
 using Camdas.Contracts;
+using Camdas.Mobile.Services;
 using SkiaSharp;
 
 namespace Camdas.Mobile.Views;
@@ -9,30 +10,33 @@ namespace Camdas.Mobile.Views;
 public partial class PlantaPage : ContentPage
 {
     private readonly PlantaViewModel _viewModel;
+    private readonly IconeSvgCatalogo _iconeCatalogo;
     private bool _zoomAjustadoNoCarregamento;
     private CamadaDto? _camadaArrastada;
 
     public string PlantaId { get; set; } = string.Empty;
 
-    public PlantaPage(PlantaViewModel viewModel)
+    public PlantaPage(PlantaViewModel viewModel, IconeSvgCatalogo iconeCatalogo)
     {
         InitializeComponent();
         _viewModel = viewModel;
+        _iconeCatalogo = iconeCatalogo;
         BindingContext = viewModel;
 
         // Entrar/sair do modo de edição (ex.: tocar numa camada dispara SelecionarCamadaCommand no
         // XAML, sem passar pelo code-behind) precisa reconfigurar a UI de desenho — reagimos aqui.
         _viewModel.PropertyChanged += OnViewModelPropertyChanged;
         Canvas.SolicitarTexto += OnCanvasSolicitarTexto;
+        Canvas.ZoomPorGestoSolicitado += (_, dados) => AtualizarZoomPinca(dados.FatorEscala, dados.Centro);
+        Canvas.IconeTocado += OnCanvasIconeTocado;
+        Canvas.IconeEmEdicaoIniciada += (_, _) => MostrarBarraPosicionamento("Arraste o ícone pra posicionar (ou cancele pra deixar como estava)");
+        Canvas.TextoEmEdicaoIniciado += (_, _) => MostrarBarraPosicionamento("Arraste o texto pra posicionar (ou cancele pra deixar como estava)");
 
-        // Ao entrar na edição, a barra de ferramentas aparece e o Grid só termina de redistribuir as
-        // linhas (e portanto o tamanho real do ScrollView) depois do PropertyChanged já ter disparado
-        // — reaplica o tamanho do canvas quando o layout do ScrollView de fato mudar.
-        PlantaScroll.SizeChanged += (_, _) =>
-        {
-            if (_viewModel.ModoEdicao)
-                AjustarCanvasParaViewport();
-        };
+        // O canvas sempre tem o tamanho da área visível do ScrollView (visualização ou edição — ver
+        // comentário em AplicarModoEdicaoUi sobre por que os dois modos agora compartilham o mesmo
+        // mecanismo de pan/zoom) — reaplica sempre que o layout do ScrollView mudar de tamanho (ex.:
+        // a barra de ferramentas de edição aparecendo/sumindo redistribui as linhas do Grid).
+        PlantaScroll.SizeChanged += (_, _) => AjustarCanvasParaViewport();
 
         // Listener nativo Android na lixeira (ver LixeiraDragListener): recebe os eventos reais de
         // entrada/saída do arrasto (o DropGestureRecognizer do MAUI não expõe isso no Android, só
@@ -98,21 +102,24 @@ public partial class PlantaPage : ContentPage
     }
 
     /// <summary>Reconfigura a tela ao alternar edição/visualização: desliga os sub-modos (texto/
-    /// desenhar/borracha), troca a rolagem do ScrollView (desenhar dentro dele viraria rolagem) e
-    /// reaplica o zoom no layout correspondente (inflar+rolar na visualização; transform interno na
-    /// edição). Canvas.ModoPan entra ligado (ajuste/pinça por padrão, pedido do usuário) só ao ENTRAR
-    /// na edição — ao sair, volta pra false, porque fora da edição quem manda no arrasto é o
-    /// ScrollView nativo (Orientation="Both"); deixar ModoPan ligado ali interceptaria o toque antes
-    /// da rolagem nativa acontecer.</summary>
+    /// desenhar/borracha) e reaplica o zoom. Canvas.ModoPan fica sempre ligado (ajuste/pinça por
+    /// padrão) em QUALQUER um dos dois modos — antes, a visualização confiava na rolagem nativa do
+    /// ScrollView (Orientation="Both") pra arrastar, e só a edição usava PanX/PanY com
+    /// Orientation="Neither". O problema: com rolagem nativa ligada, o Android intercepta e "rouba" o
+    /// gesto pro ScrollView assim que detecta arrasto — antes que um segundo dedo (pinça) consiga ser
+    /// reconhecido pelo nosso código (bug reportado: "pinça não funciona na visualização"). Unificando
+    /// os dois modos no mesmo mecanismo (canvas de tamanho fixo + PanX/PanY, rolagem nativa sempre
+    /// desligada), a pinça (ver AtualizarPinca/GerenciarPan em PlantaCanvasView) funciona igual nos
+    /// dois lugares.</summary>
     private void AplicarModoEdicaoUi()
     {
         Canvas.ModoTexto = false;
-        Canvas.ModoPan = _viewModel.ModoEdicao;
+        Canvas.ModoPan = true;
         AtualizarDestaqueBotao(BotaoTexto, false);
         AtualizarDestaqueBotao(BotaoDesenhar, false);
         AtualizarDestaqueBorracha(false);
 
-        PlantaScroll.Orientation = _viewModel.ModoEdicao ? ScrollOrientation.Neither : ScrollOrientation.Both;
+        PlantaScroll.Orientation = ScrollOrientation.Neither;
         AtualizarZoom(Canvas.Zoom <= 0 ? 1f : Canvas.Zoom);
     }
 
@@ -126,6 +133,11 @@ public partial class PlantaPage : ContentPage
         // garantir que o traço de cada camada já esteja carregado quando a composição é pintada.
         Canvas.AtualizarPreview();
 
+        // Garante ModoPan/Orientation corretos mesmo na primeiríssima vez que a tela aparece — o
+        // PropertyChanged de ModoEdicao (que chama isto normalmente) só dispara numa mudança de
+        // verdade, e no primeiro carregamento nunca houve uma.
+        AplicarModoEdicaoUi();
+
         // Primeiro carregamento: começa com a planta inteira visível na tela (em vez do tamanho
         // nativo, que geralmente é maior que a tela e cortava a visualização — bug reportado).
         if (!_zoomAjustadoNoCarregamento && _viewModel.ImagemBase is not null)
@@ -135,30 +147,10 @@ public partial class PlantaPage : ContentPage
         }
     }
 
-    // O SKCanvasView aqui é inflado pra imagemBase.Width×zoom (pra rolar dentro do ScrollView), e o
-    // Android aloca uma superfície bitmap desse tamanho. Acima de ~100 MB o Android recusa desenhar
-    // (RecordingCanvas.throwIfCannotDraw: "trying to draw too large bitmap") e derruba o app — era o
-    // que acontecia ao dar zoom alto numa planta grande. Mantemos um teto conservador de bytes e de
-    // dimensão por lado, e limitamos o zoom pra nunca ultrapassá-lo (o desenho segue em resolução
-    // nativa; só não dá pra ampliar a superfície visível além do que o Android aguenta).
-    private const long OrcamentoBytesSuperficie = 64L * 1024 * 1024;
-    private const int DimensaoMaximaSuperficie = 8000;
-
-    private float ZoomMaximoSeguro(int largura, int altura)
-    {
-        var area = (double)largura * altura;
-        if (area <= 0)
-            return (float)ZoomSlider.Maximum;
-
-        var porBytes = Math.Sqrt(OrcamentoBytesSuperficie / (4.0 * area));
-        var porDimensao = (double)DimensaoMaximaSuperficie / Math.Max(largura, altura);
-        return (float)Math.Min(porBytes, porDimensao);
-    }
-
     /// <summary>Dá ao canvas o tamanho da área visível do ScrollView (o SKCanvasView não tem tamanho
     /// próprio quando hospedado num ScrollView — sem isto ele colapsa pra 0 e a planta não aparece).
-    /// Chamado ao entrar na edição e sempre que o ScrollView mudar de tamanho (a barra de ferramentas
-    /// aparecendo/sumindo redistribui as linhas do Grid).</summary>
+    /// Chamado sempre que o ScrollView mudar de tamanho (a barra de ferramentas de edição aparecendo/
+    /// sumindo redistribui as linhas do Grid).</summary>
     private void AjustarCanvasParaViewport()
     {
         if (PlantaScroll.Width > 0)
@@ -167,40 +159,35 @@ public partial class PlantaPage : ContentPage
             Canvas.HeightRequest = PlantaScroll.Height;
     }
 
+    /// <summary>Setado enquanto QUALQUER código daqui muda ZoomSlider.Value programaticamente —
+    /// necessário porque atribuir Slider.Value dispara o evento ValueChanged igual um arrasto de
+    /// verdade do usuário. Sem esse guard, AtualizarZoomPinca (ancora no ponto médio dos dedos, NÃO
+    /// reseta Pan) atualizava o slider só pra manter o rótulo em dia, isso disparava
+    /// OnZoomSliderChanged, que chamava ESTE AtualizarZoom — que reseta Canvas.PanX/PanY pra 0 — a
+    /// cada evento de pinça, desfazendo a âncora no mesmo instante em que era calculada. Era a causa
+    /// raiz real do bug "pinça sempre volta pro canto/ponto fixo" (sobrevivia a toda tentativa
+    /// anterior de consertar só a conta da âncora, porque o problema nunca foi a conta).</summary>
+    private bool _atualizandoZoomProgramaticamente;
+
+    /// <summary>Canvas sempre do tamanho da área visível (nunca infla pra rolar dentro do ScrollView,
+    /// ver comentário em AplicarModoEdicaoUi) — o zoom só afeta o Scale/Translate internos do
+    /// OnPaintSurface, igual nos dois modos. Sem inflar, a superfície nunca estoura o limite do
+    /// Android (bitmap grande demais), então o zoom vai até o máximo do slider sem precisar de teto
+    /// adicional.</summary>
     private void AtualizarZoom(float zoom)
     {
-        if (_viewModel.ImagemBase is not { } imagemBase)
+        if (_viewModel.ImagemBase is null)
             return;
 
         Canvas.UsarResolucaoNativa = true;
-
-        if (_viewModel.ModoEdicao)
-        {
-            // Edição: canvas do tamanho da área visível (o zoom só afeta o Scale/Translate internos do
-            // OnPaintSurface — igual à antiga tela isolada). Um SKCanvasView dentro do ScrollView não
-            // tem tamanho próprio; sem fixar o tamanho da viewport ele colapsa pra 0 e a planta some.
-            // Sem inflar, a superfície nunca estoura o limite do Android, então o zoom vai até o máximo
-            // do slider; o deslocamento é pelo modo pan (✋), já que a rolagem do ScrollView fica off.
-            zoom = Math.Clamp(zoom, (float)ZoomSlider.Minimum, (float)ZoomSlider.Maximum);
-            AjustarCanvasParaViewport();
-            Canvas.PanX = 0;
-            Canvas.PanY = 0;
-        }
-        else
-        {
-            // Visualização: infla o canvas (imagem×zoom) pra rolar dentro do ScrollView. Limita o zoom
-            // pra a superfície não passar do teto do Android (ver ZoomMaximoSeguro).
-            var zoomMaximo = Math.Min((float)ZoomSlider.Maximum, ZoomMaximoSeguro(imagemBase.Width, imagemBase.Height));
-            zoom = Math.Clamp(zoom, (float)ZoomSlider.Minimum, zoomMaximo);
-            Canvas.WidthRequest = imagemBase.Width * zoom;
-            Canvas.HeightRequest = imagemBase.Height * zoom;
-        }
-
+        zoom = Math.Clamp(zoom, (float)ZoomSlider.Minimum, (float)ZoomSlider.Maximum);
+        AjustarCanvasParaViewport();
+        Canvas.PanX = 0;
+        Canvas.PanY = 0;
         Canvas.Zoom = zoom;
         Canvas.AtualizarPreview();
 
-        ZoomSlider.Value = zoom;
-        ZoomLabel.Text = $"{(int)Math.Round(zoom * 100)}%";
+        AtualizarSliderELabelSemDispararEvento(zoom);
     }
 
     /// <summary>Escala a planta pra caber na largura disponível da tela (nunca amplia além de 100%).</summary>
@@ -214,7 +201,20 @@ public partial class PlantaPage : ContentPage
         AtualizarZoom(zoomAjustado);
     }
 
-    private void OnZoomSliderChanged(object? sender, ValueChangedEventArgs e) => AtualizarZoom((float)e.NewValue);
+    private void AtualizarSliderELabelSemDispararEvento(float zoom)
+    {
+        _atualizandoZoomProgramaticamente = true;
+        ZoomSlider.Value = zoom;
+        _atualizandoZoomProgramaticamente = false;
+        ZoomLabel.Text = $"{(int)Math.Round(zoom * 100)}%";
+    }
+
+    private void OnZoomSliderChanged(object? sender, ValueChangedEventArgs e)
+    {
+        if (_atualizandoZoomProgramaticamente)
+            return;
+        AtualizarZoom((float)e.NewValue);
+    }
 
     private void OnAumentarZoomClicked(object? sender, EventArgs e) => AtualizarZoom(Canvas.Zoom + 0.25f);
 
@@ -417,40 +417,13 @@ public partial class PlantaPage : ContentPage
         }
     }
 
-    /// <summary>Zoom por pinça (dois dedos) durante a edição — só age com ModoEdicao ligado, pra não
-    /// interferir em nada fora da edição (fora dela quem cuida do zoom/rolagem é o ScrollView nativo).
-    /// Canvas.EmGestoDePinca fica ligado do Started ao Completed/Canceled — enquanto isso, o toque de
-    /// um dedo só (GerenciarPan) é ignorado no Canvas, senão os dois sistemas de gesto brigavam pela
-    /// mesma sequência de toque (bug reportado: "solta no meio do caminho" durante a pinça).</summary>
-    private void OnPinchUpdated(object? sender, PinchGestureUpdatedEventArgs e)
-    {
-        if (!_viewModel.ModoEdicao)
-            return;
-
-        switch (e.Status)
-        {
-            case GestureStatus.Started:
-                Canvas.EmGestoDePinca = true;
-                break;
-            case GestureStatus.Running when e.Scale > 0:
-                AtualizarZoomPinca((float)e.Scale, e.ScaleOrigin);
-                break;
-            case GestureStatus.Completed:
-            case GestureStatus.Canceled:
-                Canvas.EmGestoDePinca = false;
-                break;
-        }
-    }
-
-    /// <summary>Ajusta o Zoom durante a pinça mantendo o ponto sob os dedos fixo na tela (ancora em
-    /// e.ScaleOrigin, relativo 0..1 da área do Canvas) — ao contrário de AtualizarZoom (usado pelos
-    /// botões/slider), NÃO reseta PanX/PanY: resetar a cada evento de pinça (que dispara várias vezes
-    /// por segundo) fazia a visualização "saltar" de volta pra um ponto fixo a cada atualização,
-    /// impedindo qualquer ajuste (bug reportado: "vai pra um ponto fixo da planta, não consigo
-    /// ajustar"). A conta é a de zoom-em-torno-de-um-ponto padrão: acha o ponto do conteúdo (native)
-    /// sob os dedos com o zoom antigo, e desloca o Pan pra esse mesmo ponto continuar sob os dedos com
-    /// o zoom novo.</summary>
-    private void AtualizarZoomPinca(float fatorEscala, Point origemRelativa)
+    /// <summary>Ajusta o Zoom durante a pinça (chamado por Canvas.ZoomPorGestoSolicitado — ver
+    /// AtualizarPinca em PlantaCanvasView, que reconhece o gesto de dois dedos em qualquer tela/modo,
+    /// os dois agora compartilham o mesmo mecanismo de canvas fixo + PanX/PanY). Ancora no ponto médio
+    /// real entre os dois dedos (recebido de Canvas.ZoomPorGestoSolicitado) — o que estiver embaixo
+    /// deles continua embaixo deles conforme o zoom muda. Ao contrário de AtualizarZoom, NÃO reseta
+    /// PanX/PanY a cada chamada (a pinça dispara isso várias vezes por segundo).</summary>
+    private void AtualizarZoomPinca(float fatorEscala, SKPoint centro)
     {
         if (_viewModel.ImagemBase is null || Canvas.Width <= 0 || Canvas.Height <= 0)
             return;
@@ -460,17 +433,14 @@ public partial class PlantaPage : ContentPage
         if (novoZoom == zoomAntigo)
             return;
 
-        var pontoTelaX = (float)(origemRelativa.X * Canvas.Width);
-        var pontoTelaY = (float)(origemRelativa.Y * Canvas.Height);
-        var pontoConteudoX = (pontoTelaX - Canvas.PanX) / zoomAntigo;
-        var pontoConteudoY = (pontoTelaY - Canvas.PanY) / zoomAntigo;
+        var pontoConteudoX = (centro.X - Canvas.PanX) / zoomAntigo;
+        var pontoConteudoY = (centro.Y - Canvas.PanY) / zoomAntigo;
 
         Canvas.PanX += pontoConteudoX * (zoomAntigo - novoZoom);
         Canvas.PanY += pontoConteudoY * (zoomAntigo - novoZoom);
         Canvas.Zoom = novoZoom;
 
-        ZoomSlider.Value = novoZoom;
-        ZoomLabel.Text = $"{(int)Math.Round(novoZoom * 100)}%";
+        AtualizarSliderELabelSemDispararEvento(novoZoom);
     }
 
     /// <summary>Alterna a borracha (apaga em vez de pintar). Como ela desenha, desliga texto/pan pra
@@ -518,11 +488,12 @@ public partial class PlantaPage : ContentPage
             return;
 
         Canvas.IniciarTextoPendente(texto, _viewModel.CorTraco, tamanhoFonte: Math.Max(24f, _viewModel.EspessuraTraco * 4), ponto);
-        MostrarBarraPosicionamento();
+        MostrarBarraPosicionamento("Arraste o texto pra posicionar");
     }
 
-    private void MostrarBarraPosicionamento()
+    private void MostrarBarraPosicionamento(string legenda)
     {
+        LabelPosicionamento.Text = legenda;
         BarraFerramentasEdicao.IsVisible = false;
         BarraPosicionamento.IsVisible = true;
     }
@@ -549,5 +520,45 @@ public partial class PlantaPage : ContentPage
     {
         Canvas.CancelarElementoPendente();
         OcultarBarraPosicionamento();
+    }
+
+    // --- Ferramenta de ícones ---
+
+    private void OnAbrirMenuIconesClicked(object? sender, EventArgs e) => MenuIcones.IsVisible = true;
+
+    private void OnFecharMenuIconesTapped(object? sender, TappedEventArgs e) => MenuIcones.IsVisible = false;
+
+    private void OnFecharMenuIconesClicked(object? sender, EventArgs e) => MenuIcones.IsVisible = false;
+
+    /// <summary>Escolhido um ícone no menu, carrega o SVG (cacheado depois da primeira vez — ver
+    /// IconeSvgCatalogo) e começa o posicionamento, centrado no meio da área visível atual (não tem
+    /// um "toque no canvas" de onde partir, diferente do texto — a escolha vem de um menu).</summary>
+    private async void OnEscolherIconeClicked(object? sender, EventArgs e)
+    {
+        if (sender is not Button { CommandParameter: string nomeArquivo })
+            return;
+
+        MenuIcones.IsVisible = false;
+
+        var picture = await _iconeCatalogo.ObterAsync(nomeArquivo);
+
+        var centroTelaX = (float)(Canvas.Width / 2);
+        var centroTelaY = (float)(Canvas.Height / 2);
+        var pontoNativo = Canvas.Zoom > 0
+            ? new SKPoint((centroTelaX - Canvas.PanX) / Canvas.Zoom, (centroTelaY - Canvas.PanY) / Canvas.Zoom)
+            : new SKPoint(centroTelaX, centroTelaY);
+
+        Canvas.IniciarIconePendente(picture, nomeArquivo, pontoNativo);
+        MostrarBarraPosicionamento("Arraste o ícone pra posicionar");
+    }
+
+    /// <summary>Disparado quando o usuário toca (sem arrastar) num ícone já colocado nesta sessão,
+    /// com a camada "Ícones" ativa e o lápis ligado (ver Canvas.TratarToqueNaCamadaIcones) — confirma
+    /// antes de excluir só aquele ícone específico.</summary>
+    private async void OnCanvasIconeTocado(object? sender, Guid iconeId)
+    {
+        var confirmar = await DisplayAlert("Excluir ícone", "Excluir esse ícone da planta?", "Excluir", "Cancelar");
+        if (confirmar)
+            Canvas.ExcluirIconeColocado(iconeId);
     }
 }

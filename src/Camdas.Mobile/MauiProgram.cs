@@ -33,25 +33,22 @@ public static class MauiProgram
 
     private static void RegistrarServicos(IServiceCollection services)
     {
-        services.AddSingleton<IArmazenamentoEnderecosApi, ArmazenamentoEnderecosApiPreferences>();
         services.AddSingleton<ConfiguracaoApi>();
-        services.AddSingleton<ResolvedorEnderecoApi>();
         services.AddSingleton<ITokenStore, TokenStoreSecureStorage>();
         services.AddSingleton<ISalvadorGaleria, SalvadorGaleriaAndroid>();
         services.AddSingleton<IArmazenamentoRascunho, ArmazenamentoRascunhoArquivo>();
         services.AddSingleton<IPlataformaEdicao, PlataformaEdicaoDireta>();
+        services.AddSingleton<IconeSvgCatalogo>();
         services.AddTransient<TokenAuthHandler>();
-        services.AddTransient<EnderecoDinamicoHandler>();
 
         services.AddHttpClient<IApiClient, ApiClient>((provedor, cliente) =>
         {
             var configuracao = provedor.GetRequiredService<ConfiguracaoApi>();
             cliente.BaseAddress = new Uri(configuracao.BaseUrl);
-        }).AddHttpMessageHandler<EnderecoDinamicoHandler>()
-          .AddHttpMessageHandler<TokenAuthHandler>();
+        }).AddHttpMessageHandler<TokenAuthHandler>();
 
         // Checagem de atualização (GitHub Releases) — host fixo e sem relação com ConfiguracaoApi
-        // (que aponta pro servidor da intranet, não pro GitHub).
+        // (que aponta pro servidor da Api no Render, não pro GitHub).
         services.AddHttpClient<IVerificadorAtualizacao, VerificadorAtualizacaoGitHub>(cliente =>
         {
             cliente.BaseAddress = new Uri("https://api.github.com/");

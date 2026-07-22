@@ -192,8 +192,7 @@ if (!app.Environment.IsDevelopment())
 using (var escopo = app.Services.CreateScope())
     escopo.ServiceProvider.GetRequiredService<CamdasDbContext>().Database.Migrate();
 
-// Endpoint anônimo e leve, usado apenas pelo app mobile para descobrir em qual rede (casa/trabalho)
-// o servidor está acessível antes de tentar autenticar — ver ResolvedorEnderecoApi.
+// Endpoint anônimo e leve, usado pelo health check do Render (ver render.yaml, healthCheckPath).
 app.MapGet("/health", () => Results.Ok());
 
 // Lê o mesmo arquivo VERSION (raiz do repo) embutido como recurso — mesma fonte usada pelo
