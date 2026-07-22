@@ -138,8 +138,8 @@ public sealed class PlantaCanvasView : SKCanvasView
     private SKSizeI _tamanhoImagemBaseEscalada;
     private SKPoint? _ultimoPontoToque;
     private SKPoint? _penultimoPontoToque;
-    private SKPoint? _ultimoPontoPan;
-    private long? _idPonteiroPan;
+    private readonly Dictionary<long, SKPoint> _ponteirosAtivos = [];
+    private float? _distanciaAnteriorPinca;
 
     /// <summary>Composição (imagem base + camadas visíveis) pré-renderizada num único bitmap, usada
     /// só quando <see cref="UsarResolucaoNativa"/> é true. Sem isto, mexer no zoom/pan da
@@ -256,13 +256,13 @@ public sealed class PlantaCanvasView : SKCanvasView
         set => SetValue(ModoPanProperty, value);
     }
 
-    /// <summary>Setado pela Page enquanto um PinchGestureRecognizer nativo (dois dedos) está em
-    /// andamento — enquanto true, o toque de um dedo só (<see cref="GerenciarPan"/>) é ignorado por
-    /// completo. Sem isto, os dois sistemas de gesto (o toque bruto do SkiaSharp e o
-    /// PinchGestureRecognizer do MAUI, que competem pela mesma sequência de toque) brigavam entre si
-    /// durante a pinça, fazendo a visualização "piscar"/travar no meio do gesto (bug reportado: "solta
-    /// no meio do caminho").</summary>
-    public bool EmGestoDePinca { get; set; }
+    /// <summary>Disparado por <see cref="AtualizarPinca"/> quando dois dedos estão na tela (pinça) —
+    /// carrega o fator de escala (multiplicador do zoom atual) desde a última atualização e o ponto
+    /// médio atual entre os dois dedos (mesmas coordenadas de <see cref="SKTouchEventArgs.Location"/>,
+    /// unidades da view). A Page assina isto pra aplicar o zoom com seus próprios limites (slider),
+    /// ancorando nesse ponto — ver comentário em AtualizarPinca sobre por que a pinça é tratada aqui e
+    /// não com um PinchGestureRecognizer nativo do MAUI.</summary>
+    public event EventHandler<(float FatorEscala, SKPoint Centro)>? ZoomPorGestoSolicitado;
 
     /// <summary>
     /// Força o redesenho — usado pela Page depois de recarregar dados que não disparam sozinhos uma
@@ -710,16 +710,25 @@ public sealed class PlantaCanvasView : SKCanvasView
             return;
         }
 
+        // Pinça (dois dedos) funciona em QUALQUER tela/modo — visualização geral (o ScrollView nativo
+        // cuida do resto) ou edição de camada (GerenciarPan cuida do arrasto de 1 dedo) — sem exigir
+        // nenhum modo ligado (pedido: a visualização geral não tinha essa função). Só age de fato
+        // quando o SEGUNDO dedo toca a tela; com 0 ou 1 dedo, não faz nada e deixa o toque seguir
+        // normalmente (desenho, GerenciarPan, ou nada — o ScrollView nativo assume na visualização).
+        if (AtualizarPinca(e))
+        {
+            e.Handled = true;
+            return;
+        }
+
         // Modo pan explícito (ícone na barra de ferramentas, ver CamadaEdicaoPage) — separado do
         // desenho de propósito: sem ScrollView ao redor do canvas (competia com o próprio gesto de
         // desenhar), arrastar só move a visualização quando esse modo está ligado; nunca ao mesmo
-        // tempo que o lápis desenha. Durante uma pinça (EmGestoDePinca), ignora por completo — ver
-        // comentário na propriedade — só consome o toque (e.Handled) sem mexer em PanX/PanY.
+        // tempo que o lápis desenha.
         if (ModoPan)
         {
             e.Handled = true;
-            if (!EmGestoDePinca)
-                GerenciarPan(e);
+            GerenciarPan(e);
             return;
         }
 
@@ -738,6 +747,19 @@ public sealed class PlantaCanvasView : SKCanvasView
         // achar o ponto correspondente no bitmap nativo da camada, senão o traço fica na
         // posição/escala erradas.
         var ponto = ConverterTelaParaNativo(e.Location);
+
+        // Trava o ponto dentro dos limites da imagem base — o bitmap da camada tem exatamente o
+        // tamanho da planta (ver ObterOuCriarBitmapDaCamada), então um toque na margem em volta
+        // (visível quando o zoom deixa espaço sobrando, ou fora da planta antes zoom-out) não deve
+        // desenhar/escrever nada ali (pedido: "o usuário não pode desenhar fora da planta"). Trava em
+        // vez de simplesmente ignorar o toque, pra o traço continuar até a borda em vez de "sumir"
+        // assim que o dedo passa da margem.
+        if (ImagemBase is { } imagemBase)
+        {
+            ponto = new SKPoint(
+                Math.Clamp(ponto.X, 0, imagemBase.Width),
+                Math.Clamp(ponto.Y, 0, imagemBase.Height));
+        }
 
         if (ModoTexto)
         {
@@ -823,35 +845,111 @@ public sealed class PlantaCanvasView : SKCanvasView
         InvalidateSurface();
     }
 
-    /// <summary>Com <see cref="ModoPan"/> ligado, qualquer arrasto de um dedo só move a visualização
-    /// (PanX/PanY) — não desenha nada, o lápis fica desativado enquanto esse modo está ligado. Rastreia
-    /// só o Id do primeiro dedo que tocou: sem isto, o segundo dedo de uma pinça também gera eventos
-    /// Pressed/Moved aqui (o SkiaSharp reporta cada ponteiro separadamente) e o "Pressed" dele
-    /// sobrescrevia _ultimoPontoPan com a posição do segundo dedo — um salto abrupto no meio do
-    /// gesto (bug reportado: "vai pra um ponto fixo"/"solta no meio do caminho" durante a pinça).</summary>
+    /// <summary>Reconhece dois dedos na tela e dispara <see cref="ZoomPorGestoSolicitado"/> — chamado
+    /// incondicionalmente no início de <see cref="OnTouch"/>, então funciona em QUALQUER tela/modo
+    /// (visualização geral com ScrollView nativo, ou edição de camada com <see cref="GerenciarPan"/>),
+    /// sem exigir nenhum modo específico ligado. Só devolve true (consome o toque) quando há
+    /// exatamente 2 dedos ativos; com 0 ou 1, devolve false sem mexer em nada, deixando o resto de
+    /// OnTouch (ou o ScrollView nativo, na visualização) tratar normalmente. Implementado sobre o
+    /// toque bruto do SkiaSharp (rastreando cada ponteiro por <see cref="SKTouchEventArgs.Id"/>), não
+    /// com um PinchGestureRecognizer nativo do MAUI: as duas abordagens brigavam pela mesma sequência
+    /// de toque no Android — o SKCanvasView com EnableTouchEvents já reivindica o fluxo inteiro a
+    /// partir do primeiro dedo, então o recognizer nunca reconhecia o segundo dedo de forma confiável
+    /// (hora o pan travava depois do zoom, hora a pinça parava de responder por completo — bugs
+    /// reportados). Um terceiro dedo é ignorado.</summary>
+    private bool AtualizarPinca(SKTouchEventArgs e)
+    {
+        switch (e.ActionType)
+        {
+            case SKTouchAction.Pressed:
+                if (_ponteirosAtivos.Count < 2)
+                    _ponteirosAtivos[e.Id] = e.Location;
+                if (_ponteirosAtivos.Count == 2)
+                    _distanciaAnteriorPinca = DistanciaEntrePonteirosAtivos();
+                return _ponteirosAtivos.Count == 2;
+
+            case SKTouchAction.Moved:
+                if (_ponteirosAtivos.Count != 2 || !_ponteirosAtivos.ContainsKey(e.Id))
+                    return false;
+
+                _ponteirosAtivos[e.Id] = e.Location;
+                var distanciaAtual = DistanciaEntrePonteirosAtivos();
+                if (_distanciaAnteriorPinca is { } distanciaAnterior && distanciaAnterior > 0)
+                    ZoomPorGestoSolicitado?.Invoke(this, (distanciaAtual / distanciaAnterior, CentroEntrePonteirosAtivos()));
+                _distanciaAnteriorPinca = distanciaAtual;
+                return true;
+
+            case SKTouchAction.Released:
+            case SKTouchAction.Cancelled:
+                var estavaEmPinca = _ponteirosAtivos.Count == 2;
+                _ponteirosAtivos.Remove(e.Id);
+                if (_ponteirosAtivos.Count < 2)
+                    _distanciaAnteriorPinca = null;
+                return estavaEmPinca;
+
+            default:
+                return false;
+        }
+    }
+
+    private float DistanciaEntrePonteirosAtivos()
+    {
+        var (primeiro, segundo) = ObterParDePonteirosAtivos();
+        var dx = primeiro.X - segundo.X;
+        var dy = primeiro.Y - segundo.Y;
+        return MathF.Sqrt(dx * dx + dy * dy);
+    }
+
+    /// <summary>Ponto médio entre os dois dedos — usado como âncora do zoom (o que estiver embaixo
+    /// dos dedos continua embaixo deles conforme o zoom muda), em vez de um ponto fixo (bug reportado:
+    /// "pinça fixa no canto"). Só é confiável agora que a pinça não compete mais com nenhum outro
+    /// sistema de gesto pela mesma sequência de toque — ver comentário em AtualizarPinca.</summary>
+    private SKPoint CentroEntrePonteirosAtivos()
+    {
+        var (primeiro, segundo) = ObterParDePonteirosAtivos();
+        return new SKPoint((primeiro.X + segundo.X) / 2f, (primeiro.Y + segundo.Y) / 2f);
+    }
+
+    private (SKPoint Primeiro, SKPoint Segundo) ObterParDePonteirosAtivos()
+    {
+        if (_ponteirosAtivos.Count != 2)
+            return (default, default);
+
+        using var enumerador = _ponteirosAtivos.Values.GetEnumerator();
+        enumerador.MoveNext();
+        var primeiro = enumerador.Current;
+        enumerador.MoveNext();
+        var segundo = enumerador.Current;
+        return (primeiro, segundo);
+    }
+
+    /// <summary>Com <see cref="ModoPan"/> ligado, arrastar 1 dedo move a visualização (PanX/PanY) —
+    /// não desenha nada, o lápis fica desativado enquanto esse modo está ligado. A pinça (2 dedos) é
+    /// sempre interceptada antes de chegar aqui (ver <see cref="AtualizarPinca"/> em OnTouch), então
+    /// este método só vê, na prática, 0 ou 1 dedo.</summary>
     private void GerenciarPan(SKTouchEventArgs e)
     {
         switch (e.ActionType)
         {
             case SKTouchAction.Pressed:
-                if (_idPonteiroPan is null)
+                // O canvas normalmente fica dentro de um ScrollView. Sem isto, o Android entende um
+                // arrasto do dedo como gesto de rolagem do ScrollView pai a partir do primeiro Moved, e
+                // o pan trava no ponto inicial.
+                (Handler?.PlatformView as Android.Views.View)?.Parent?.RequestDisallowInterceptTouchEvent(true);
+                break;
+
+            case SKTouchAction.Moved:
+                if (_ponteirosAtivos.TryGetValue(e.Id, out var anterior))
                 {
-                    _idPonteiroPan = e.Id;
-                    _ultimoPontoPan = e.Location;
+                    PanX += e.Location.X - anterior.X;
+                    PanY += e.Location.Y - anterior.Y;
+                    _ponteirosAtivos[e.Id] = e.Location;
                 }
                 break;
-            case SKTouchAction.Moved when e.Id == _idPonteiroPan && _ultimoPontoPan is { } ultimo:
-                PanX += e.Location.X - ultimo.X;
-                PanY += e.Location.Y - ultimo.Y;
-                _ultimoPontoPan = e.Location;
-                break;
+
             case SKTouchAction.Released:
             case SKTouchAction.Cancelled:
-                if (e.Id == _idPonteiroPan)
-                {
-                    _idPonteiroPan = null;
-                    _ultimoPontoPan = null;
-                }
+                (Handler?.PlatformView as Android.Views.View)?.Parent?.RequestDisallowInterceptTouchEvent(false);
                 break;
         }
 

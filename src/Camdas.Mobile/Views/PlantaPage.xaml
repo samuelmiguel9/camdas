@@ -37,14 +37,10 @@
         <!-- Orientation="Both" na visualização (rolar a planta com zoom). No modo de edição o
              code-behind troca pra "Neither" — desenhar dentro de um ScrollView faz o arrasto virar
              rolagem; lá o deslocamento vira o modo pan por padrão (toque no lápis ✏️ liga o desenho),
-             igual à edição isolada. PinchGestureRecognizer dá zoom com dois dedos durante a edição —
-             só ativo nesse modo (OnPinchUpdated confere ModoEdicao) pra não interferir com o próprio
-             gesto de zoom por pinça nativo que ScrollView com Orientation="Both" já poderia oferecer
-             fora da edição. -->
+             igual à edição isolada. Zoom por pinça (dois dedos) é tratado dentro do próprio
+             PlantaCanvasView (ver GerenciarPan) — não usa PinchGestureRecognizer do MAUI de propósito,
+             ver comentário lá. -->
         <ScrollView x:Name="PlantaScroll" Grid.Row="2" Orientation="Both">
-            <ScrollView.GestureRecognizers>
-                <PinchGestureRecognizer PinchUpdated="OnPinchUpdated" />
-            </ScrollView.GestureRecognizers>
             <views:PlantaCanvasView
                 x:Name="Canvas"
                 Camadas="{Binding Camadas}"
