@@ -1,0 +1,90 @@
+@page "/projetos/{ProjetoId:guid}/plantas"
+@using BellucSketch.Contracts
+@using BellucSketch.Mobile.ViewModels
+@implements IDisposable
+@inject PlantasDoProjetoViewModel ViewModel
+@inject NavigationManager Navegacao
+@inject IJSRuntime JS
+
+<PageTitle>Plantas — BellucSketch</PageTitle>
+
+<h1>Plantas do projeto</h1>
+
+@if (ViewModel.MensagemErro is not null)
+{
+    <p class="text-danger">@ViewModel.MensagemErro</p>
+}
+
+@if (ViewModel.EstaCarregando)
+{
+    <p><em>Carregando...</em></p>
+}
+
+<div class="row row-cols-2 row-cols-md-4 g-3">
+    @foreach (var item in ViewModel.Plantas)
+    {
+        <div class="col">
+            <div class="card h-100" role="button" @onclick="() => AbrirPlanta(item.Planta)">
+                @if (item.MiniaturaPng is not null)
+                {
+                    <img class="card-img-top" src="@MiniaturaSrc(item.MiniaturaPng)" alt="@item.Planta.Nome" />
+                }
+                <div class="card-body">
+                    <h5 class="card-title">@item.Planta.Nome</h5>
+                    @if (!string.IsNullOrWhiteSpace(item.Planta.NomeCliente))
+                    {
+                        <p class="card-text text-muted">@item.Planta.NomeCliente</p>
+                    }
+                    <button type="button" class="btn btn-sm btn-outline-danger" @onclick="() => ExcluirPlantaAsync(item)" @onclick:stopPropagation="true">Excluir</button>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public Guid ProjetoId { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        ViewModel.PropertyChanged += AoPropriedadeMudar;
+        ViewModel.Plantas.CollectionChanged += AoColecaoMudarESubscrever;
+        await ViewModel.CarregarAsync(ProjetoId);
+        foreach (var item in ViewModel.Plantas)
+            item.PropertyChanged += AoPropriedadeMudar;
+    }
+
+    private void AoColecaoMudarESubscrever(object? remetente, System.Collections.Specialized.NotifyCollectionChangedEventArgs args)
+    {
+        if (args.NewItems is not null)
+            foreach (PlantaListItemViewModel novo in args.NewItems)
+                novo.PropertyChanged += AoPropriedadeMudar;
+
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void AbrirPlanta(PlantaDto planta) => Navegacao.NavigateTo($"plantas/{planta.Id}");
+
+    private async Task ExcluirPlantaAsync(PlantaListItemViewModel item)
+    {
+        var confirmar = await JS.InvokeAsync<bool>("confirm", $"Excluir '{item.Planta.Nome}'? Isso apaga também todas as camadas dela, sem volta.");
+        if (!confirmar)
+            return;
+
+        await ViewModel.RemoverAsync(item);
+    }
+
+    private static string MiniaturaSrc(byte[] png) => $"data:image/png;base64,{Convert.ToBase64String(png)}";
+
+    private void AoPropriedadeMudar(object? remetente, System.ComponentModel.PropertyChangedEventArgs args) =>
+        InvokeAsync(StateHasChanged);
+
+    public void Dispose()
+    {
+        ViewModel.PropertyChanged -= AoPropriedadeMudar;
+        ViewModel.Plantas.CollectionChanged -= AoColecaoMudarESubscrever;
+        foreach (var item in ViewModel.Plantas)
+            item.PropertyChanged -= AoPropriedadeMudar;
+    }
+}

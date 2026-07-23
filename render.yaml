@@ -3,10 +3,15 @@
 # `sync: false` precisam ser preenchidas manualmente no painel do Render depois do Apply — são
 # segredos que vêm do painel do Supabase, o Render não tem como gerar sozinho.
 services:
+  # name (camdas-api) e a chave ConnectionStrings__Camdas propositalmente NÃO renomeados pra
+  # BellucSketch: name é a URL já publicada do serviço no Render (renomear criaria um serviço NOVO
+  # ou quebraria a URL que o app já usa, ver ConfiguracaoApi.BaseUrl no Mobile); a connection string
+  # é um segredo `sync: false` já preenchido manualmente no painel com a string real do Supabase —
+  # mudar o nome da chave aqui não migra esse valor, a Api subiria sem achar o banco.
   - type: web
     name: camdas-api
     runtime: docker
-    dockerfilePath: ./src/Camdas.Api/Dockerfile
+    dockerfilePath: ./src/BellucSketch.Api/Dockerfile
     dockerContext: .
     plan: free
     healthCheckPath: /health
@@ -16,9 +21,9 @@ services:
       - key: Jwt__Chave
         generateValue: true
       - key: Jwt__Emissor
-        value: Camdas.Api
+        value: BellucSketch.Api
       - key: Jwt__Audiencia
-        value: Camdas.Clientes
+        value: BellucSketch.Clientes
       - key: Jwt__ExpiracaoMinutos
         value: "480"
       - key: ConnectionStrings__Camdas
@@ -36,8 +41,10 @@ services:
       - key: ArmazenamentoArquivos__S3__SecretKey
         sync: false
 
-  # Camdas.Web (Blazor WebAssembly) publicado como Static Site — instala o SDK .NET manualmente no
-  # build porque a imagem de Static Site do Render não vem com .NET pré-instalado.
+  # BellucSketch.Web (Blazor WebAssembly) publicado como Static Site — instala o SDK .NET
+  # manualmente no build porque a imagem de Static Site do Render não vem com .NET pré-instalado.
+  # name (camdas-web) propositalmente NÃO renomeado — é a URL já publicada do site, ver comentário
+  # equivalente no serviço da Api acima.
   - type: web
     name: camdas-web
     runtime: static
@@ -45,7 +52,7 @@ services:
       curl -sSL https://dot.net/v1/dotnet-install.sh | bash /dev/stdin --channel 8.0 --install-dir $HOME/.dotnet &&
       export PATH="$HOME/.dotnet:$PATH" &&
       dotnet workload install wasm-tools &&
-      dotnet publish src/Camdas.Web/Camdas.Web.csproj -c Release -o publish_output
+      dotnet publish src/BellucSketch.Web/BellucSketch.Web.csproj -c Release -o publish_output
     staticPublishPath: ./publish_output/wwwroot
     routes:
       - type: rewrite

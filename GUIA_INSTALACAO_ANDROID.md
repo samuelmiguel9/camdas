@@ -1,4 +1,4 @@
-# Guia de instalação — Camdas no Android
+# Guia de instalação — BellucSketch no Android
 
 Guia para quem vai **usar** o app (montador), não para quem desenvolve. Para gerar o `.apk` a
 partir do código-fonte, veja [README.md](README.md), seção "Rodando o app Android".
@@ -28,7 +28,7 @@ Na primeira vez que o app abre (ou sempre que troca de rede — casa/trabalho/cl
 sozinho os endereços de servidor já salvos. Se nenhum responder, aparece uma tela pedindo:
 
 1. **IP e porta do servidor**, no formato `192.168.0.50:5080` (pergunte ao administrador da rede
-   qual é o IP da máquina rodando a `Camdas.Api` nesse momento — pode mudar se a máquina reiniciar o
+   qual é o IP da máquina rodando a `BellucSketch.Api` nesse momento — pode mudar se a máquina reiniciar o
    Wi-Fi, por exemplo).
 2. **Um nome pra esse endereço** (ex.: "Escritório", "Cliente X") — fica salvo pra da próxima vez o
    app reconhecer sozinho essa rede.
@@ -53,7 +53,7 @@ a seção de problemas conhecidos abaixo antes de reinstalar do zero.
   recria a chave sozinho); se aparecer numa versão antiga, desinstale e instale de novo.
 - **Tela de login não sai do "Servidor não encontrado".** Confirme que o celular está na mesma rede
   Wi-Fi do servidor, que a máquina do servidor está com a Api rodando (`dotnet run --project
-  src/Camdas.Api --urls http://0.0.0.0:5080`, não só `localhost`) e que a porta está liberada no
+  src/BellucSketch.Api --urls http://0.0.0.0:5080`, não só `localhost`) e que a porta está liberada no
   firewall do Windows daquela máquina.
 - **App abre e funciona, mas as imagens/plantas não carregam.** Geralmente é a Api ter reiniciado e
   trocado de IP (ex.: outra rede Wi-Fi) — force o app a esquecer o endereço salvo removendo e

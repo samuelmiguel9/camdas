@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage
+    x:Class="BellucSketch.Mobile.Views.LoginPage"
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    xmlns:vm="clr-namespace:BellucSketch.Mobile.ViewModels;assembly=BellucSketch.Mobile.Core"
+    xmlns:services="clr-namespace:BellucSketch.Mobile.Services;assembly=BellucSketch.Mobile.Core"
+    x:DataType="vm:LoginViewModel"
+    Title="Entrar">
+
+    <Grid RowDefinitions="*,Auto" Padding="24">
+        <!-- Card completo de marca como foto de fundo (pedido do usuário: não como transição de
+             splash screen, e sim persistente aqui, em Projetos e em Plantas do projeto — ver
+             ProjetosPage.xaml/PlantasDoProjetoPage.xaml). InputTransparent pra não atrapalhar o
+             toque nos campos/botão de login por cima. -->
+        <Image Grid.Row="0" Grid.RowSpan="2" Source="capa_belluc.png" Aspect="AspectFill"
+               Opacity="0.16" InputTransparent="True" />
+
+        <VerticalStackLayout Grid.Row="0" Spacing="16" VerticalOptions="Center">
+            <Label Text="BellucSketch" FontSize="32" HorizontalOptions="Center" FontAttributes="Bold" />
+            <Label Text="Ratificação de projetos de planta baixa" HorizontalOptions="Center" />
+
+            <BoxView HeightRequest="1" Color="LightGray" Margin="0,16" />
+
+            <Label Text="Id do usuário (login provisório de desenvolvimento — sem senha)" />
+            <Entry Placeholder="00000000-0000-0000-0000-000000000000" Text="{Binding UsuarioId}" />
+
+            <Button Text="Entrar" Command="{Binding EntrarCommand}"
+                    IsEnabled="{Binding EstaCarregando, Converter={StaticResource InvertedBoolConverter}}" />
+
+            <ActivityIndicator IsRunning="{Binding EstaCarregando}" IsVisible="{Binding EstaCarregando}" />
+
+            <Label Text="{Binding MensagemErro}" TextColor="Red"
+                   IsVisible="{Binding MensagemErro, Converter={StaticResource StringNaoVazioParaBoolConverter}}" />
+        </VerticalStackLayout>
+
+        <VerticalStackLayout Grid.Row="1" Margin="0,16,0,0">
+            <Label Text="developed by Samuel Miguel" HorizontalOptions="Center" TextColor="Gray" FontSize="12" />
+            <Label HorizontalOptions="Center" TextColor="Gray" FontSize="10">
+                <Label.FormattedText>
+                    <FormattedString>
+                        <Span Text="versão " />
+                        <Span Text="{x:Static services:VerificadorAtualizacaoGitHub.VersaoAtual}" />
+                    </FormattedString>
+                </Label.FormattedText>
+            </Label>
+        </VerticalStackLayout>
+    </Grid>
+</ContentPage>
