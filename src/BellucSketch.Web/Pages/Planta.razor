@@ -66,6 +66,20 @@
             @if (ViewModel.ModoEdicao)
             {
                 <div class="planta-edicao-toolbar">
+                    <div class="edicao-grupo edicao-camada-ativa">
+                        <!-- Antes só dava pra trocar de camada indo até o painel lateral (clicando no
+                             lápis de cada linha) — o usuário pediu um jeito direto, na própria barra de
+                             ferramentas, de ver/trocar em qual camada o traço está caindo, sem precisar
+                             rolar até o painel (igual o Android, onde tocar em qualquer parte da linha da
+                             camada já seleciona ela pra edição). -->
+                        <label for="select-camada-ativa">Editando:</label>
+                        <select id="select-camada-ativa" value="@ViewModel.CamadaEmEdicaoId" @onchange="TrocarCamadaEmEdicaoAsync">
+                            @foreach (var camada in ViewModel.Camadas)
+                            {
+                                <option value="@camada.Id" disabled="@camada.Bloqueada">@camada.Nome@(camada.Bloqueada ? " (bloqueada)" : "")</option>
+                            }
+                        </select>
+                    </div>
                     <div class="edicao-grupo">
                         <button class="@FerramentaClasse(FerramentaDesenhoWeb.Lapis)" @onclick="() => AlternarFerramenta(FerramentaDesenhoWeb.Lapis)">✏️ Lápis</button>
                         <button class="@FerramentaClasse(FerramentaDesenhoWeb.Texto)" @onclick="() => AlternarFerramenta(FerramentaDesenhoWeb.Texto)">🔤 Texto</button>
@@ -154,7 +168,7 @@
                                            Zoom="_zoom"
                                            Ferramenta="_ferramenta"
                                            EstiloLinha="_estiloLinha"
-                                           CorTraco="ViewModel.CorTraco"
+                                           CorTraco="@ViewModel.CorTraco"
                                            EspessuraTraco="ViewModel.EspessuraTraco"
                                            ModoApagar="ViewModel.ModoApagar"
                                            IconeAtivo="_iconeAtivo"
@@ -604,6 +618,20 @@
 
         ViewModel.EditarCamada(camada);
         await JS.InvokeVoidAsync("camdasInterop.definirModoDesenho", "planta-canvas-wrapper", true);
+    }
+
+    /// <summary>Select "Editando: ..." da barra de ferramentas — mesmo caminho do lápis por camada
+    /// (EditarCamadaAsync), só que acessível sem rolar até o painel lateral.</summary>
+    private async Task TrocarCamadaEmEdicaoAsync(ChangeEventArgs e)
+    {
+        if (e.Value is not string valor || !Guid.TryParse(valor, out var camadaId))
+            return;
+
+        var camada = ViewModel.Camadas.FirstOrDefault(c => c.Id == camadaId);
+        if (camada is null)
+            return;
+
+        await EditarCamadaAsync(camada);
     }
 
     private async Task SairDaEdicaoAsync()

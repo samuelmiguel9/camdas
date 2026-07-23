@@ -311,6 +311,15 @@
     flex-basis: 100%;
 }
 
+/* Select "Editando: ..." — deixa óbvio, sem depender do painel lateral, em qual camada o clique no
+   canvas vai desenhar (pedido do usuário). */
+.edicao-camada-ativa {
+    color: #dcdcdc;
+    font-size: 0.9rem;
+    border-right: 1px solid #444;
+    padding-right: 10px;
+}
+
 .edicao-status-ocr {
     color: #f1c40f;
     font-style: italic;

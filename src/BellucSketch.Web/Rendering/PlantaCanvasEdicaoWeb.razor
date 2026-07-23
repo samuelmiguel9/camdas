@@ -52,7 +52,16 @@
 
     private abstract record AcaoDesenho;
     private sealed record AcaoTraco(List<SKPoint> Pontos, string Cor, float Espessura, bool Apagar, EstiloTracoWeb Estilo = EstiloTracoWeb.Livre) : AcaoDesenho;
-    private sealed record AcaoTexto(string Texto, SKPoint Posicao, string Cor, float TamanhoFonte, float RotacaoGraus = 0f) : AcaoDesenho;
+    /// <summary>AreaCobertura (coordenadas nativas, sempre sem rotação — cobre o texto ORIGINAL da
+    /// planta) + MascaraCobertura (bitmap já pronto pra cobrir essa área, ver CriarMascaraCobertura) só
+    /// são usados pela ferramenta de Cota: cobrem o número impresso reconhecido pelo OCR antes de
+    /// escrever o texto corrigido, pra parecer uma edição de verdade (a cota antiga some) em vez de só
+    /// sobrepor texto novo em cima do antigo. Porta do mesmo mecanismo do Android (PlantaCanvasView) —
+    /// faltava aqui, por isso a ferramenta de Cota "identificava" (o OCR lia certo) mas nunca apagava o
+    /// número antigo por baixo. Nulos pro texto manual normal (ferramenta "T").</summary>
+    private sealed record AcaoTexto(
+        string Texto, SKPoint Posicao, string Cor, float TamanhoFonte, float RotacaoGraus = 0f,
+        SKRect? AreaCobertura = null, SKBitmap? MascaraCobertura = null) : AcaoDesenho;
 
     private abstract class ElementoPendente
     {
@@ -65,6 +74,8 @@
         public required string Texto;
         public string Cor = "#000000";
         public float TamanhoFonte;
+        public SKRect? AreaCobertura;
+        public SKBitmap? MascaraCobertura;
     }
 
     private sealed class ElementoIconePendente : ElementoPendente
@@ -512,7 +523,9 @@
 
     // --- Texto ---
 
-    private void IniciarTextoPendente(string texto, string cor, float tamanhoFonte, SKPoint posicaoInicial)
+    private void IniciarTextoPendente(
+        string texto, string cor, float tamanhoFonte, SKPoint posicaoInicial,
+        SKRect? areaCobertura = null, SKBitmap? mascaraCobertura = null)
     {
         using var fonte = new SKFont(SKTypeface.Default, tamanhoFonte);
         var largura = Math.Max(20f, fonte.MeasureText(texto));
@@ -524,6 +537,8 @@
             Cor = cor,
             TamanhoFonte = tamanhoFonte,
             Retangulo = new SKRect(posicaoInicial.X, posicaoInicial.Y - altura, posicaoInicial.X + largura, posicaoInicial.Y),
+            AreaCobertura = areaCobertura,
+            MascaraCobertura = mascaraCobertura,
         };
 
         // Avisa a página pai (Planta.razor) IMEDIATAMENTE — sem isto, a barra de girar/redimensionar/
@@ -533,12 +548,14 @@
         NotificarAlteracao();
     }
 
-    private void AdicionarTexto(string texto, SKPoint posicao, string cor, float tamanhoFonte, float rotacaoGraus)
+    private void AdicionarTexto(
+        string texto, SKPoint posicao, string cor, float tamanhoFonte, float rotacaoGraus,
+        SKRect? areaCobertura = null, SKBitmap? mascaraCobertura = null)
     {
         if (CamadaAtivaId is not { } camadaId)
             return;
 
-        var acao = new AcaoTexto(texto, posicao, cor, tamanhoFonte, rotacaoGraus);
+        var acao = new AcaoTexto(texto, posicao, cor, tamanhoFonte, rotacaoGraus, areaCobertura, mascaraCobertura);
         var bitmap = ObterOuCriarBitmapDaCamada(camadaId);
         using (var canvas = new SKCanvas(bitmap))
             DesenharAcao(canvas, acao);
@@ -628,7 +645,9 @@
         switch (_elementoPendente)
         {
             case ElementoTextoPendente texto:
-                AdicionarTexto(texto.Texto, new SKPoint(texto.Retangulo.Left, texto.Retangulo.Bottom), texto.Cor, texto.TamanhoFonte, texto.RotacaoGraus);
+                AdicionarTexto(
+                    texto.Texto, new SKPoint(texto.Retangulo.Left, texto.Retangulo.Bottom), texto.Cor, texto.TamanhoFonte, texto.RotacaoGraus,
+                    texto.AreaCobertura, texto.MascaraCobertura);
                 break;
             case ElementoIconePendente icone:
                 AdicionarIcone(icone);
@@ -861,6 +880,8 @@
             TamanhoFonte = texto.Acao.TamanhoFonte,
             Retangulo = texto.Retangulo,
             RotacaoGraus = texto.Acao.RotacaoGraus,
+            AreaCobertura = texto.Acao.AreaCobertura,
+            MascaraCobertura = texto.Acao.MascaraCobertura,
         };
 
         NotificarAlteracao();
@@ -918,11 +939,156 @@
             ProcessandoOcr = false;
         }
 
-        // Pré-preenche o modo texto com o resultado do OCR — o usuário confirma/corrige antes de
-        // gravar (mesmo espírito do Android). Diferente do Android, não cobre automaticamente o
-        // número antigo (ver comentário na ferramenta de cota do PlantaCanvasView) — simplificação
-        // deliberada da primeira versão web; o usuário apaga o número antigo com a borracha se quiser.
-        IniciarTextoPendente(textoReconhecido.Trim(), "#FF0000", TamanhoFontePadrao, new SKPoint(retangulo.Left, retangulo.Bottom));
+        // Cobre o número original (cor de fundo detectada, ver DetectarCorDeFundo) antes de pré-
+        // preencher o modo texto com o resultado do OCR — porta do mesmo mecanismo do Android
+        // (PlantaCanvasView.CriarMascaraCobertura), que faltava aqui: a ferramenta reconhecia o texto
+        // certinho mas nunca apagava o número antigo por baixo (bug reportado: "não apaga por
+        // sobreposição do pixel de fundo"). A área coberta/posição/tamanho do texto novo usam a área
+        // EXATA da tinta detectada dentro da seleção (ver DetectarAreaTexto), não o retângulo inteiro
+        // arrastado (que tem folga ao redor pra facilitar o clique, e pode conter linha de cota
+        // vizinha que não deve ser apagada). A cobertura é uma máscara, não um retângulo sólido: os
+        // pixels vermelhos (linha de cota) dentro da área ficam de fora, preservados.
+        var corFundo = DetectarCorDeFundo(recorte);
+        var areaTextoLocal = DetectarAreaTexto(recorte, corFundo);
+        var areaTextoLocalInt = SKRectI.Round(areaTextoLocal);
+        var areaCobertura = new SKRect(
+            regiao.Left + areaTextoLocalInt.Left, regiao.Top + areaTextoLocalInt.Top,
+            regiao.Left + areaTextoLocalInt.Right, regiao.Top + areaTextoLocalInt.Bottom);
+        var mascaraCobertura = CriarMascaraCobertura(recorte, areaTextoLocalInt, corFundo);
+
+        // Mesma altura/largura da área coberta (aproxima o corpo do texto original), encolhendo a
+        // fonte se o texto reconhecido/editado ficar mais largo que essa área — sem isto um texto mais
+        // comprido que o número original vazava pra fora da cobertura.
+        var tamanhoFontePorAltura = Math.Max(12f, areaCobertura.Height * 0.85f);
+        using var fonteTeste = new SKFont(SKTypeface.Default, tamanhoFontePorAltura);
+        var larguraTexto = fonteTeste.MeasureText(textoReconhecido.Trim());
+        var tamanhoFonte = larguraTexto > areaCobertura.Width && larguraTexto > 0
+            ? Math.Max(8f, tamanhoFontePorAltura * (areaCobertura.Width / larguraTexto))
+            : tamanhoFontePorAltura;
+
+        IniciarTextoPendente(
+            textoReconhecido.Trim(), "#FF0000", tamanhoFonte, new SKPoint(areaCobertura.Left, areaCobertura.Bottom),
+            areaCobertura, mascaraCobertura);
+    }
+
+    /// <summary>Estima a cor de fundo do recorte pela cor mais frequente na BORDA do retângulo — a
+    /// moldura de uma seleção de cota é, quase sempre, bem maior que o traço fino do número impresso
+    /// dentro dela, então o fundo real domina a borda mesmo contando alguns pixels do próprio texto
+    /// que encostem nela. Porta idêntica de PlantaCanvasView.DetectarCorDeFundo (Android).</summary>
+    private static SKColor DetectarCorDeFundo(SKBitmap recorte)
+    {
+        var contagem = new Dictionary<(byte R, byte G, byte B, byte A), int>();
+
+        void Contar(int x, int y)
+        {
+            var cor = recorte.GetPixel(x, y);
+            var chave = (cor.Red, cor.Green, cor.Blue, cor.Alpha);
+            contagem[chave] = contagem.GetValueOrDefault(chave) + 1;
+        }
+
+        for (var x = 0; x < recorte.Width; x++)
+        {
+            Contar(x, 0);
+            Contar(x, recorte.Height - 1);
+        }
+        for (var y = 0; y < recorte.Height; y++)
+        {
+            Contar(0, y);
+            Contar(recorte.Width - 1, y);
+        }
+
+        if (contagem.Count == 0)
+            return SKColors.White;
+
+        var maisFrequente = contagem.MaxBy(par => par.Value).Key;
+        return new SKColor(maisFrequente.R, maisFrequente.G, maisFrequente.B, maisFrequente.A);
+    }
+
+    private const int ToleranciaCorTinta = 40;
+    private const int ToleranciaVermelho = 40;
+
+    /// <summary>Cor típica da linha de cota nas plantas importadas — preservada tanto no bounding box
+    /// do número (ver DetectarAreaTexto) quanto na hora de cobrir (ver CriarMascaraCobertura), pedido
+    /// do usuário no Android: "pixels vermelhos você não tira, pois fazem parte da linha de cota".</summary>
+    private static bool EhVermelho(SKColor cor) =>
+        cor.Red - cor.Green > ToleranciaVermelho && cor.Red - cor.Blue > ToleranciaVermelho;
+
+    private static bool EhTinta(SKColor cor, SKColor corFundo) =>
+        (Math.Abs(cor.Red - corFundo.Red) > ToleranciaCorTinta ||
+         Math.Abs(cor.Green - corFundo.Green) > ToleranciaCorTinta ||
+         Math.Abs(cor.Blue - corFundo.Blue) > ToleranciaCorTinta)
+        && !EhVermelho(cor);
+
+    /// <summary>Encontra o retângulo (coordenadas locais do recorte) que envolve só os pixels de
+    /// "tinta" (número impresso), não o retângulo inteiro que o usuário arrastou (que costuma ter
+    /// folga ao redor pra facilitar o clique). Porta idêntica de PlantaCanvasView.DetectarAreaTexto.</summary>
+    private static SKRect DetectarAreaTexto(SKBitmap recorte, SKColor corFundo)
+    {
+        int minX = recorte.Width, minY = recorte.Height, maxX = -1, maxY = -1;
+
+        for (var y = 0; y < recorte.Height; y++)
+        {
+            for (var x = 0; x < recorte.Width; x++)
+            {
+                if (!EhTinta(recorte.GetPixel(x, y), corFundo))
+                    continue;
+
+                if (x < minX) minX = x;
+                if (x > maxX) maxX = x;
+                if (y < minY) minY = y;
+                if (y > maxY) maxY = y;
+            }
+        }
+
+        if (maxX < minX || maxY < minY)
+            return new SKRect(0, 0, recorte.Width, recorte.Height);
+
+        const float Folga = 3f;
+        return new SKRect(
+            Math.Max(0, minX - Folga), Math.Max(0, minY - Folga),
+            Math.Min(recorte.Width, maxX + 1 + Folga), Math.Min(recorte.Height, maxY + 1 + Folga));
+    }
+
+    /// <summary>Gera o bitmap usado pra "cobrir" o número original — sobrepõe corFundo SÓ nos pixels
+    /// classificados como tinta do número (com uma dilatação de 1px pra pegar a franja de antialiasing
+    /// ao redor de cada traço), deixando todo o resto intocado. Porta idêntica de
+    /// PlantaCanvasView.CriarMascaraCobertura.</summary>
+    private static SKBitmap CriarMascaraCobertura(SKBitmap origem, SKRectI areaLocal, SKColor corFundo)
+    {
+        var largura = Math.Max(1, areaLocal.Width);
+        var altura = Math.Max(1, areaLocal.Height);
+
+        var ehTinta = new bool[largura, altura];
+        for (var y = 0; y < altura; y++)
+        {
+            for (var x = 0; x < largura; x++)
+            {
+                var origemX = Math.Clamp(areaLocal.Left + x, 0, origem.Width - 1);
+                var origemY = Math.Clamp(areaLocal.Top + y, 0, origem.Height - 1);
+                ehTinta[x, y] = EhTinta(origem.GetPixel(origemX, origemY), corFundo);
+            }
+        }
+
+        var mascara = new SKBitmap(largura, altura, SKColorType.Rgba8888, SKAlphaType.Premul);
+        for (var y = 0; y < altura; y++)
+        {
+            for (var x = 0; x < largura; x++)
+            {
+                var cobrir = false;
+                for (var dy = -1; dy <= 1 && !cobrir; dy++)
+                for (var dx = -1; dx <= 1 && !cobrir; dx++)
+                {
+                    var vx = x + dx;
+                    var vy = y + dy;
+                    if (vx >= 0 && vx < largura && vy >= 0 && vy < altura && ehTinta[vx, vy])
+                        cobrir = true;
+                }
+
+                mascara.SetPixel(x, y, cobrir ? corFundo : SKColors.Transparent);
+            }
+        }
+
+        return mascara;
     }
 
     // --- Desenho (composição + prévias ao vivo) ---
@@ -980,12 +1146,18 @@
 
     private void DesenharTextoPendente(SKCanvas canvas, ElementoTextoPendente texto)
     {
+        // Prévia do "apagar" a cota original — sempre na posição ORIGINAL da seleção, mesmo que o
+        // texto solto já tenha sido arrastado pra outro lugar; é exatamente isso que será gravado ao
+        // confirmar (ver DesenharAcao, mesmo par AreaCobertura/MascaraCobertura).
+        if (texto.AreaCobertura is { } areaCoberturaPreview && texto.MascaraCobertura is { } mascaraPreview)
+            canvas.DrawBitmap(mascaraPreview, areaCoberturaPreview);
+
         canvas.Save();
         var pivo = new SKPoint(texto.Retangulo.Left, texto.Retangulo.Bottom);
         if (texto.RotacaoGraus != 0f)
             canvas.RotateDegrees(texto.RotacaoGraus, pivo.X, pivo.Y);
 
-        using (var paint = new SKPaint { IsAntialias = true, Color = SKColor.Parse(texto.Cor) })
+        using (var paint = new SKPaint { IsAntialias = true, Color = AnalisarCor(texto.Cor) })
         using (var fonte = new SKFont(SKTypeface.Default, texto.TamanhoFonte))
             canvas.DrawText(texto.Texto, pivo.X, pivo.Y, fonte, paint);
 
@@ -1034,7 +1206,10 @@
                 DesenharTraco(canvas, traco);
                 break;
             case AcaoTexto texto:
-                using (var paint = new SKPaint { IsAntialias = true, Color = SKColor.Parse(texto.Cor) })
+                if (texto.AreaCobertura is { } areaCobertura && texto.MascaraCobertura is { } mascara)
+                    canvas.DrawBitmap(mascara, areaCobertura);
+
+                using (var paint = new SKPaint { IsAntialias = true, Color = AnalisarCor(texto.Cor) })
                 using (var fonte = new SKFont(SKTypeface.Default, texto.TamanhoFonte))
                 {
                     if (texto.RotacaoGraus == 0f)
@@ -1061,9 +1236,22 @@
         StrokeJoin = SKStrokeJoin.Round,
         StrokeWidth = espessura,
         BlendMode = apagar ? SKBlendMode.Clear : SKBlendMode.SrcOver,
-        Color = apagar ? SKColors.Transparent : SKColor.Parse(cor),
+        Color = apagar ? SKColors.Transparent : AnalisarCor(cor),
         PathEffect = apagar ? null : CriarEfeitoTraco(estilo, espessura),
     };
+
+    // SKColor.Parse(cor) estava lançando ArgumentException (hex inválido) e derrubando o render
+    // inteiro (Lápis/Texto usam isto pra cor; Ícone não, por isso só ele funcionava). Loga o valor
+    // exato recebido em vez de deixar a exceção subir e travar a tela toda.
+    private static SKColor AnalisarCor(string? cor)
+    {
+        if (SKColor.TryParse(cor, out var resultado))
+            return resultado;
+
+        var descricao = cor is null ? "null" : $"'{cor}' (tamanho {cor.Length})";
+        Console.Error.WriteLine($"[PlantaCanvasEdicaoWeb] ALERTA: cor inválida recebida: {descricao}. Usando preto no lugar.");
+        return SKColors.Black;
+    }
 
     private static SKPathEffect? CriarEfeitoTraco(EstiloTracoWeb estilo, float espessura) => estilo switch
     {
