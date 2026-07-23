@@ -151,6 +151,11 @@
         if (CamadaAtivaId == _camadaAtivaIdAnterior)
             return;
 
+        Console.Error.WriteLine(CamadaAtivaId is { } novaId
+            ? $"[PlantaCanvasEdicaoWeb] Camada ativa mudou para {novaId} " +
+              $"({(Camadas.FirstOrDefault(c => c.Id == novaId) is { } c ? $"'{c.Nome}', Bloqueada={c.Bloqueada}" : "NÃO ENCONTRADA na lista atual!")})."
+            : "[PlantaCanvasEdicaoWeb] Camada ativa mudou para nenhuma (null) — saiu do modo de edição ou nenhuma camada disponível.");
+
         _camadaAtivaIdAnterior = CamadaAtivaId;
         _historico.Clear();
         _desfeitas.Clear();
@@ -233,6 +238,18 @@
 
     private SKBitmap ObterOuCriarBitmapDaCamada(Guid camadaId)
     {
+        // Diagnóstico: se camadaId não bater com NENHUMA camada da lista atual, o traço é gravado num
+        // bitmap "fantasma" que PlantaOverlayRenderer.Desenhar nunca vai desenhar (ele só percorre as
+        // camadas de Camadas, não o dicionário inteiro) — pareceria "o traço some assim que eu solto o
+        // mouse", suspeita levantada pelo usuário ("a web não está selecionando a camada certa").
+        if (!Camadas.Any(c => c.Id == camadaId))
+        {
+            Console.Error.WriteLine(
+                $"[PlantaCanvasEdicaoWeb] ALERTA: gravando na camada {camadaId}, que não existe na lista atual " +
+                $"({Camadas.Count} camada(s): {string.Join(", ", Camadas.Select(c => $"{c.Nome}={c.Id}"))}). " +
+                "O traço não vai aparecer na composição final.");
+        }
+
         var largura = Math.Max(1, ImagemBase?.Width ?? 1);
         var altura = Math.Max(1, ImagemBase?.Height ?? 1);
 
