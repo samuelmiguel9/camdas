@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage
+    x:Class="BellucSketch.Mobile.Views.ProjetosPage"
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    xmlns:vm="clr-namespace:BellucSketch.Mobile.ViewModels;assembly=BellucSketch.Mobile.Core"
+    xmlns:contracts="clr-namespace:BellucSketch.Contracts;assembly=BellucSketch.Contracts"
+    xmlns:services="clr-namespace:BellucSketch.Mobile.Services;assembly=BellucSketch.Mobile.Core"
+    x:DataType="vm:ProjetosViewModel"
+    Title="Projetos">
+
+    <Grid Padding="16" RowDefinitions="Auto,Auto,Auto,*,Auto,Auto,Auto" RowSpacing="12">
+
+        <!-- Card completo de marca como foto de fundo (pedido do usuário: persistente aqui, no Login
+             e em Plantas do projeto, não como transição de splash screen) — primeiro filho do Grid
+             (fica atrás de tudo o mais, por ordem de declaração), InputTransparent pra não atrapalhar
+             toque nos itens da lista por baixo. -->
+        <Image Grid.Row="0" Grid.RowSpan="7" Source="capa_belluc.png" Aspect="AspectFill"
+               Opacity="0.16" InputTransparent="True" />
+
+        <!-- Aviso de atualização: só aparece quando o release mais recente do GitHub tem uma tag
+             diferente da instalada (ver VerificadorAtualizacaoGitHub); "Baixar" abre a página do
+             release no navegador do aparelho, não instala nada sozinho. -->
+        <Border Grid.Row="0" IsVisible="{Binding MensagemAtualizacao, Converter={StaticResource StringNaoVazioParaBoolConverter}}"
+                StrokeShape="RoundRectangle 4" Stroke="#F1C40F" BackgroundColor="#FFF8E1" Padding="10,6">
+            <HorizontalStackLayout Spacing="8">
+                <Label Text="{Binding MensagemAtualizacao}" VerticalOptions="Center" TextColor="#7A5B00" />
+                <Button Text="Baixar" Clicked="OnBaixarAtualizacaoClicked" />
+            </HorizontalStackLayout>
+        </Border>
+
+        <HorizontalStackLayout Grid.Row="1" Spacing="8">
+            <Entry Placeholder="Nome do novo projeto" Text="{Binding NovoProjetoNome}" WidthRequest="240" />
+            <Button Text="Criar" Command="{Binding CriarProjetoCommand}" />
+        </HorizontalStackLayout>
+
+        <ActivityIndicator Grid.Row="2" IsRunning="{Binding EstaCarregando}" IsVisible="{Binding EstaCarregando}" />
+
+        <!-- Sem SelectionMode/SelectionChangedCommand de propósito: um CollectionView com seleção
+             não dispara o comando de novo ao tocar no item já selecionado (bug reportado: só
+             conseguia abrir um projeto clicando em outro antes). TapGestureRecognizer por item
+             dispara sempre. -->
+        <CollectionView Grid.Row="3" ItemsSource="{Binding Projetos}">
+            <CollectionView.ItemTemplate>
+                <DataTemplate x:DataType="contracts:ProjetoDto">
+                    <Grid Padding="12" ColumnDefinitions="*,Auto,Auto,Auto">
+                        <Grid.GestureRecognizers>
+                            <TapGestureRecognizer
+                                Command="{Binding BindingContext.AbrirProjetoCommand, Source={RelativeSource AncestorType={x:Type ContentPage}}}"
+                                CommandParameter="{Binding .}" />
+                        </Grid.GestureRecognizers>
+
+                        <Label Text="{Binding Nome}" FontAttributes="Bold" VerticalOptions="Center" />
+                        <Label Grid.Column="1" Text="{Binding Status}" TextColor="Gray" VerticalOptions="Center" Margin="0,0,8,0" />
+                        <Button Grid.Column="2" Text="Editar" CommandParameter="{Binding .}" Clicked="OnEditarProjetoClicked" />
+                        <Button Grid.Column="3" Text="Excluir" CommandParameter="{Binding .}" Clicked="OnExcluirProjetoClicked" />
+                    </Grid>
+                </DataTemplate>
+            </CollectionView.ItemTemplate>
+        </CollectionView>
+
+        <Label Grid.Row="4" Text="{Binding MensagemErro}" TextColor="Red" />
+
+        <Label Grid.Row="5" Text="developed by Samuel Miguel" HorizontalOptions="Center" TextColor="Gray" FontSize="12" Margin="0,8,0,0" />
+
+        <Label Grid.Row="6" HorizontalOptions="Center" TextColor="Gray" FontSize="10">
+            <Label.FormattedText>
+                <FormattedString>
+                    <Span Text="versão " />
+                    <Span Text="{x:Static services:VerificadorAtualizacaoGitHub.VersaoAtual}" />
+                </FormattedString>
+            </Label.FormattedText>
+        </Label>
+    </Grid>
+</ContentPage>

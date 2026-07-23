@@ -1,4 +1,4 @@
-# Camdas — Desenho livre sobre plantas importadas
+# BellucSketch — Desenho livre sobre plantas importadas
 
 Consulte [PRD.md](PRD.md) para arquitetura, modelo de dados e stack tecnológica, e
 [TASKS.md](TASKS.md) para o backlog de implementação por fases.
@@ -27,31 +27,31 @@ Consulte [PRD.md](PRD.md) para arquitetura, modelo de dados e stack tecnológica
 ## Build e testes
 
 ```powershell
-dotnet build Camdas.sln
-dotnet test Camdas.sln --logger "console;verbosity=normal"
+dotnet build BellucSketch.sln
+dotnet test BellucSketch.sln --logger "console;verbosity=normal"
 ```
 
 ## Estrutura
 
 ```
-src/Camdas.Domain/                 # Entidades, value objects, enums e regras de negócio (zero dependências externas)
-src/Camdas.Contracts/              # DTOs de request/response compartilhados por Api e Mobile (só depende do Domain)
-src/Camdas.Application/            # Casos de uso (MediatR), portas (Abstractions/), validações (FluentValidation)
-src/Camdas.Infrastructure/         # CamdasDbContext + mapeamentos EF Core, repositórios, storage, conversão PDF
-src/Camdas.Api/                    # ASP.NET Core Web API — controllers, JWT, middleware de erros, Program.cs
-src/Camdas.Mobile.Core/            # ViewModels, cliente HTTP, renderer SkiaSharp e geração do relatório PDF — testáveis sem Android (net8.0)
-src/Camdas.Mobile/                 # App .NET MAUI Android — Views (XAML), MauiProgram.cs, Platforms/
-src/Camdas.Web/                    # Visualizador Blazor WebAssembly (somente leitura) — reaproveita Camdas.Mobile.Core
-tests/Camdas.Domain.Tests/         # Testes unitários de domínio (xUnit + FluentAssertions)
-tests/Camdas.Application.Tests/    # Testes de casos de uso (xUnit + FluentAssertions + NSubstitute)
-tests/Camdas.Infrastructure.Tests/ # Smoke tests (EF Core InMemory) + testes de repositório (Sqlite)
-tests/Camdas.Api.Tests/            # Testes de integração ponta a ponta (WebApplicationFactory + Sqlite)
-tests/Camdas.Mobile.Core.Tests/    # Testes de ViewModel, do renderer SkiaSharp e do relatório PDF (xUnit + NSubstitute)
+src/BellucSketch.Domain/                 # Entidades, value objects, enums e regras de negócio (zero dependências externas)
+src/BellucSketch.Contracts/              # DTOs de request/response compartilhados por Api e Mobile (só depende do Domain)
+src/BellucSketch.Application/            # Casos de uso (MediatR), portas (Abstractions/), validações (FluentValidation)
+src/BellucSketch.Infrastructure/         # BellucSketchDbContext + mapeamentos EF Core, repositórios, storage, conversão PDF
+src/BellucSketch.Api/                    # ASP.NET Core Web API — controllers, JWT, middleware de erros, Program.cs
+src/BellucSketch.Mobile.Core/            # ViewModels, cliente HTTP, renderer SkiaSharp e geração do relatório PDF — testáveis sem Android (net8.0)
+src/BellucSketch.Mobile/                 # App .NET MAUI Android — Views (XAML), MauiProgram.cs, Platforms/
+src/BellucSketch.Web/                    # Visualizador Blazor WebAssembly (somente leitura) — reaproveita BellucSketch.Mobile.Core
+tests/BellucSketch.Domain.Tests/         # Testes unitários de domínio (xUnit + FluentAssertions)
+tests/BellucSketch.Application.Tests/    # Testes de casos de uso (xUnit + FluentAssertions + NSubstitute)
+tests/BellucSketch.Infrastructure.Tests/ # Smoke tests (EF Core InMemory) + testes de repositório (Sqlite)
+tests/BellucSketch.Api.Tests/            # Testes de integração ponta a ponta (WebApplicationFactory + Sqlite)
+tests/BellucSketch.Mobile.Core.Tests/    # Testes de ViewModel, do renderer SkiaSharp e do relatório PDF (xUnit + NSubstitute)
 ```
 
 Veja [RELATORIO.md](RELATORIO.md) para o histórico de testes, erros e correções de cada fase.
 
-## Rodando o app Android (Camdas.Mobile)
+## Rodando o app Android (BellucSketch.Mobile)
 
 Requer o workload MAUI + Android SDK + JDK instalados (uma vez só, por máquina):
 
@@ -67,25 +67,25 @@ winget install Microsoft.OpenJDK.17
 Build de desenvolvimento (Debug, só roda com deploy via cabo/Visual Studio):
 
 ```powershell
-dotnet build src/Camdas.Mobile/Camdas.Mobile.csproj -f net8.0-android -p:AndroidSdkDirectory=<SDK_ROOT>
+dotnet build src/BellucSketch.Mobile/BellucSketch.Mobile.csproj -f net8.0-android -p:AndroidSdkDirectory=<SDK_ROOT>
 ```
 
 Build para instalar por fora (sideload, `.apk` copiado direto pro aparelho) — **precisa ser
 Release**, senão o app fecha sozinho ao abrir (ver RELATORIO.md, Fase 6):
 
 ```powershell
-dotnet build src/Camdas.Mobile/Camdas.Mobile.csproj -f net8.0-android -c Release -p:AndroidSdkDirectory=<SDK_ROOT>
+dotnet build src/BellucSketch.Mobile/BellucSketch.Mobile.csproj -f net8.0-android -c Release -p:AndroidSdkDirectory=<SDK_ROOT>
 ```
 
 Antes de instalar num dispositivo/emulador de verdade, ajuste `ConfiguracaoApi.BaseUrl`
-(`src/Camdas.Mobile.Core/Services/ConfiguracaoApi.cs`) para o endereço real da Api na intranet — o
+(`src/BellucSketch.Mobile.Core/Services/ConfiguracaoApi.cs`) para o endereço real da Api na intranet — o
 padrão (`http://10.0.2.2:5000/`) só funciona no emulador Android apontando para o `localhost` da
 máquina de desenvolvimento; num celular físico, use o IP da máquina na rede Wi-Fi.
 
-## Rodando o visualizador web (Camdas.Web)
+## Rodando o visualizador web (BellucSketch.Web)
 
-Além do APK, existe um front-end Blazor WebAssembly (`src/Camdas.Web`) que reaproveita o mesmo
-`ApiClient`, os mesmos ViewModels e o mesmo `PlantaOverlayRenderer` do `Camdas.Mobile.Core` — ele só
+Além do APK, existe um front-end Blazor WebAssembly (`src/BellucSketch.Web`) que reaproveita o mesmo
+`ApiClient`, os mesmos ViewModels e o mesmo `PlantaOverlayRenderer` do `BellucSketch.Mobile.Core` — ele só
 mostra a planta com as camadas visíveis sobrepostas (somente leitura, não desenha/edita traço pelo
 navegador). É útil pra ver o resultado no PC sem precisar instalar o app Android.
 
@@ -95,12 +95,12 @@ Requer o workload `wasm-tools` (uma vez só, por máquina):
 dotnet workload install wasm-tools
 ```
 
-Ajuste `ApiBaseUrl` em `src/Camdas.Web/wwwroot/appsettings.json` para o endereço da sua Api (mesma
+Ajuste `ApiBaseUrl` em `src/BellucSketch.Web/wwwroot/appsettings.json` para o endereço da sua Api (mesma
 regra do `ConfiguracaoApi.BaseUrl` do Mobile — IP da máquina na rede, não `localhost`, se for acessar
 de outro dispositivo). Com a Api rodando (passo a passo abaixo), suba o visualizador:
 
 ```powershell
-dotnet run --project src/Camdas.Web
+dotnet run --project src/BellucSketch.Web
 ```
 
 Abre em `http://localhost:5150` (ou na porta que o Kestrel escolher). Faça login com o mesmo Id de
@@ -123,7 +123,7 @@ superusuário `postgres` — **a senha padrão desse instalador silencioso é `p
 
 ### 2. Criar o usuário e o banco `camdas`
 
-A connection string padrão em `src/Camdas.Api/appsettings.json` espera usuário `camdas`, senha
+A connection string padrão em `src/BellucSketch.Api/appsettings.json` espera usuário `camdas`, senha
 `camdas`, banco `camdas`:
 
 ```powershell
@@ -141,7 +141,7 @@ em vez de tentar recriar `camdas`.
 ```powershell
 dotnet tool install --global dotnet-ef --version 8.0.10
 $env:CAMDAS_CONNECTION_STRING = "Host=localhost;Database=camdas;Username=camdas;Password=camdas"
-dotnet ef database update --project src/Camdas.Infrastructure --startup-project src/Camdas.Infrastructure
+dotnet ef database update --project src/BellucSketch.Infrastructure --startup-project src/BellucSketch.Infrastructure
 ```
 
 Isso cria as tabelas (`Projetos`, `Plantas`, `Camadas`, `Usuarios`, `HistoricoAlteracoes`,
@@ -155,18 +155,18 @@ psql -U camdas -h localhost -d camdas -c "\dt"
 #### 3.1. Gerando uma nova migration (se você alterar o modelo)
 
 ```powershell
-dotnet ef migrations add NomeDaMigration --project src/Camdas.Infrastructure --startup-project src/Camdas.Infrastructure --output-dir Persistence/Migrations
-dotnet ef database update --project src/Camdas.Infrastructure --startup-project src/Camdas.Infrastructure
+dotnet ef migrations add NomeDaMigration --project src/BellucSketch.Infrastructure --startup-project src/BellucSketch.Infrastructure --output-dir Persistence/Migrations
+dotnet ef database update --project src/BellucSketch.Infrastructure --startup-project src/BellucSketch.Infrastructure
 ```
 
-Por padrão, o design-time (`CamdasDbContextFactory`) usa a connection string de desenvolvimento
+Por padrão, o design-time (`BellucSketchDbContextFactory`) usa a connection string de desenvolvimento
 embutida (`Host=localhost;Database=camdas;...`) — sobrescreva com a variável de ambiente
 `CAMDAS_CONNECTION_STRING` se seu Postgres local tiver outras credenciais.
 
 ### 4. Subir a Api
 
 ```powershell
-dotnet run --project src/Camdas.Api --launch-profile http
+dotnet run --project src/BellucSketch.Api --launch-profile http
 ```
 
 `Properties/launchSettings.json` já fixa a porta em `http://localhost:5080` e abre o navegador
@@ -176,8 +176,8 @@ Para expor a Api pra um celular físico na mesma rede (não só o emulador), rod
 interfaces e libere a porta no firewall (uma vez só, como Administrador):
 
 ```powershell
-dotnet run --project src/Camdas.Api --urls http://0.0.0.0:5080
-New-NetFirewallRule -DisplayName "Camdas Api" -Direction Inbound -LocalPort 5080 -Protocol TCP -Action Allow
+dotnet run --project src/BellucSketch.Api --urls http://0.0.0.0:5080
+New-NetFirewallRule -DisplayName "BellucSketch Api" -Direction Inbound -LocalPort 5080 -Protocol TCP -Action Allow
 ```
 
 ### 5. Testar o fluxo pelo Swagger

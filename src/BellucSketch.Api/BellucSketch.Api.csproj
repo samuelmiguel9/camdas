@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>BellucSketch.Api</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.10" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="8.0.1" />
+    <PackageReference Include="Serilog.AspNetCore" Version="8.0.3" />
+    <PackageReference Include="Serilog.Enrichers.Environment" Version="3.0.1" />
+    <!-- Serilog.AspNetCore não traz o sink de arquivo por padrão — appsettings.json configura
+         "WriteTo: File", então esse pacote precisa estar explícito ou o sink falha em silêncio
+         (Serilog engole erros de configuração de sink por padrão, sem derrubar a aplicação). -->
+    <PackageReference Include="Serilog.Sinks.File" Version="6.0.0" />
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
+    <PackageReference Include="FluentValidation.DependencyInjectionExtensions" Version="11.10.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\BellucSketch.Application\BellucSketch.Application.csproj" />
+    <ProjectReference Include="..\BellucSketch.Infrastructure\BellucSketch.Infrastructure.csproj" />
+    <ProjectReference Include="..\BellucSketch.Contracts\BellucSketch.Contracts.csproj" />
+  </ItemGroup>
+
+  <!-- Mesmo VERSION lido pelo BellucSketch.Mobile.csproj (ApplicationDisplayVersion) e pelo
+       BellucSketch.Mobile.Core (VerificadorAtualizacaoGitHub) — fonte única pra evitar a Api e o Apk
+       divulgarem números de versão divergentes. -->
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\VERSION" LogicalName="VERSION" />
+  </ItemGroup>
+
+</Project>

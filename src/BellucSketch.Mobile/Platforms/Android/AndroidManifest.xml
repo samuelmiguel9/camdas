@@ -1,0 +1,30 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+	<!-- largeHeap: subimos o teto de nitidez das imagens (ver BitmapDecodificacao.DimensaoMaximaPadrao,
+	     2500 -> 4000) — cada camada carregada mantém um bitmap raster nesse tamanho (ver
+	     PlantaCanvasView.UsarResolucaoNativa), então o processo passa a pedir mais memória nativa por
+	     planta aberta. largeHeap dá ao app um limite de heap maior (o quanto exatamente depende do
+	     aparelho/fabricante), reduzindo o risco de reintroduzir o crash por falta de memória que
+	     motivou o teto original de 2500 (ver comentário em BitmapDecodificacao). -->
+	<application android:allowBackup="true" android:icon="@mipmap/appicon" android:roundIcon="@mipmap/appicon_round" android:supportsRtl="true" android:usesCleartextTraffic="true" android:largeHeap="true">
+		<!-- Exigido pelo MediaPicker.CapturePhotoAsync (câmera) do MAUI Essentials — sem isto ele
+		     lança uma exceção em runtime ao tentar abrir a câmera. -->
+		<provider android:name="androidx.core.content.FileProvider" android:authorities="${applicationId}.fileprovider" android:exported="false" android:grantUriPermissions="true">
+			<meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/file_paths" />
+		</provider>
+	</application>
+	<!-- usesCleartextTraffic: a partir da API 28 o Android bloqueia HTTP puro por padrão. A Api
+	     roda em HTTP simples dentro da rede interna (ver PRD) — o ideal em produção é publicar a Api
+	     com HTTPS (mesmo que com certificado de CA interna) e remover esta permissão. -->
+	<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+	<uses-permission android:name="android.permission.INTERNET" />
+
+	<!-- Câmera (tirar foto da planta/imagem pra camada) e galeria (importar existente) — MediaPicker
+	     do MAUI Essentials cuida do restante do fluxo (FileProvider, intents), só precisa declarar
+	     aqui. READ_MEDIA_IMAGES é o equivalente moderno (API 33+) de READ_EXTERNAL_STORAGE. -->
+	<uses-permission android:name="android.permission.CAMERA" />
+	<uses-feature android:name="android.hardware.camera" android:required="false" />
+	<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+	<uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+	<uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
+</manifest>

@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>BellucSketch.Contracts</RootNamespace>
+    <!-- Biblioteca fina de DTOs de request/response compartilhada entre BellucSketch.Api e BellucSketch.Mobile.
+         Só depende de BellucSketch.Domain (entidades/enums, que também não têm dependências) — o app
+         Android nunca referencia Application/Infrastructure/EF Core. -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\BellucSketch.Domain\BellucSketch.Domain.csproj" />
+  </ItemGroup>
+
+</Project>

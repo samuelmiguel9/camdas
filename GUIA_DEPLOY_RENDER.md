@@ -1,12 +1,12 @@
 # Guia de deploy: Render (Api) + Supabase (banco + arquivos)
 
-Coloca a `Camdas.Api` online, acessível de qualquer rede — resolve o problema de precisar estar na
+Coloca a `BellucSketch.Api` online, acessível de qualquer rede — resolve o problema de precisar estar na
 mesma Wi-Fi do servidor pra usar o app/celular/tablet. Banco de dados e armazenamento de arquivos
 ficam no Supabase (Postgres gerenciado + Storage compatível com S3); a Api roda no Render. Veja
 `GUIA_DEPLOY_INTRANET.md` se preferir manter tudo dentro da empresa em vez da nuvem.
 
 O repositório já tem os arquivos que o Render precisa — `render.yaml` (raiz) e
-`src/Camdas.Api/Dockerfile`. As duas partes de cadastro (Supabase e Render) só você consegue fazer,
+`src/BellucSketch.Api/Dockerfile`. As duas partes de cadastro (Supabase e Render) só você consegue fazer,
 são login por navegador.
 
 ## Passo 1 — Criar o projeto no Supabase
@@ -56,7 +56,7 @@ são login por navegador.
    subida, a Api aplica as migrations sozinha no banco do Supabase (não precisa rodar `dotnet ef`
    manualmente).
 6. Quando concluir, o Render mostra a URL pública, tipo `https://camdas-api.onrender.com`. **Me
-   manda essa URL** que eu atualizo o app Android e o `Camdas.Web` pra apontar pra lá.
+   manda essa URL** que eu atualizo o app Android e o `BellucSketch.Web` pra apontar pra lá.
 
 ## O que verificar se algo falhar
 
