@@ -52,6 +52,8 @@ services:
       curl -sSL https://dot.net/v1/dotnet-install.sh | bash /dev/stdin --channel 8.0 --install-dir $HOME/.dotnet &&
       export PATH="$HOME/.dotnet:$PATH" &&
       dotnet workload install wasm-tools &&
+      dotnet nuget locals http-cache --clear &&
+      dotnet nuget locals global-packages --clear &&
       dotnet publish src/BellucSketch.Web/BellucSketch.Web.csproj -c Release -o publish_output
     staticPublishPath: ./publish_output/wwwroot
     routes:
