@@ -31,6 +31,32 @@
     }
 }
 
+.camadas-cabecalho {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.camadas-botao-nova {
+    background-color: #2E86DE;
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    padding: 4px 10px;
+}
+
+.camadas-form-nova {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 8px;
+}
+
+.camadas-form-nova input {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
 .camadas-painel {
     background-color: #2e2e2e;
     border: 1px solid #1e1e1e;

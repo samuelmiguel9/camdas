@@ -33,7 +33,10 @@
     [Parameter] public Dictionary<Guid, SKBitmap> ImagensPorCamada { get; set; } = [];
     [Parameter] public Guid? CamadaAtivaId { get; set; }
     [Parameter] public double Zoom { get; set; } = 1.0;
-    [Parameter] public FerramentaDesenhoWeb Ferramenta { get; set; } = FerramentaDesenhoWeb.Lapis;
+    // Nullable: null = nenhuma ferramenta ativa (clique na planta não desenha/insere nada) — ver
+    // AlternarFerramenta em Planta.razor, que agora permite "desligar" a ferramenta clicando de novo
+    // nela em vez de ficar sempre presa numa selecionada.
+    [Parameter] public FerramentaDesenhoWeb? Ferramenta { get; set; }
     [Parameter] public EstiloTracoWeb EstiloLinha { get; set; } = EstiloTracoWeb.Livre;
     [Parameter] public string CorTraco { get; set; } = "#000000";
     [Parameter] public float EspessuraTraco { get; set; } = 3f;
@@ -265,145 +268,175 @@
 
     private Task OnPointerDown(Microsoft.AspNetCore.Components.Web.PointerEventArgs e)
     {
-        if (ImagemBase is null)
-            return Task.CompletedTask;
-
-        // Fire-and-forget: não precisa terminar antes de processar o clique (evita um round-trip de
-        // JS interop bloqueando a resposta ao clique — parte do "delay" reportado ao usar as
-        // ferramentas). setPointerCapture só importa pro pointermove seguinte, que só chega depois.
-        _ = JS.InvokeVoidAsync("camdasInterop.capturarPonteiro", WrapperElementId, e.PointerId);
-        var ponto = ConverterParaNativo(e.OffsetX, e.OffsetY);
-
-        if (_elementoPendente is not null)
+        try
         {
-            _arrastandoElementoPendente = true;
-            _ultimoPontoElementoPendente = ponto;
+            if (ImagemBase is null)
+                return Task.CompletedTask;
+
+            // Fire-and-forget: não precisa terminar antes de processar o clique (evita um round-trip de
+            // JS interop bloqueando a resposta ao clique — parte do "delay" reportado ao usar as
+            // ferramentas). setPointerCapture só importa pro pointermove seguinte, que só chega depois.
+            _ = JS.InvokeVoidAsync("camdasInterop.capturarPonteiro", WrapperElementId, e.PointerId);
+            var ponto = ConverterParaNativo(e.OffsetX, e.OffsetY);
+
+            if (_elementoPendente is not null)
+            {
+                _arrastandoElementoPendente = true;
+                _ultimoPontoElementoPendente = ponto;
+                return Task.CompletedTask;
+            }
+
+            if (CamadaAtivaId is null)
+            {
+                Console.Error.WriteLine("[PlantaCanvasEdicaoWeb] OnPointerDown ignorado: nenhuma camada ativa (CamadaAtivaId nulo).");
+                return Task.CompletedTask;
+            }
+
+            switch (Ferramenta)
+            {
+                case FerramentaDesenhoWeb.Lapis when EstiloLinha == EstiloTracoWeb.Livre:
+                    _tracoEmAndamento = new AcaoTraco([ponto], CorTraco, EspessuraTraco, ModoApagar, EstiloTracoWeb.Livre);
+                    _canvasView?.Invalidate();
+                    break;
+                case FerramentaDesenhoWeb.Lapis:
+                    _linhaRetaInicio = ponto;
+                    _linhaRetaAtual = ponto;
+                    _canvasView?.Invalidate();
+                    break;
+                case FerramentaDesenhoWeb.Texto:
+                    // Antes usava JS "prompt()" (diálogo nativo bloqueante) pra pedir o texto — suspeito
+                    // nº1 do bug "a planta some depois de clicar com Texto ativo, só volta recarregando a
+                    // página": um diálogo bloqueante interferindo no loop de renderização do SkiaSharp no
+                    // WASM. Agora cria o elemento pendente direto com um texto-modelo e edita ao vivo pelo
+                    // campo de texto da própria barra de ferramentas (ver TextoElementoPendente/
+                    // DefinirTextoElementoPendente) — sem diálogo nenhum.
+                    IniciarTextoPendente("Texto", CorTraco, TamanhoFontePadrao, ponto);
+                    break;
+                case FerramentaDesenhoWeb.Icone:
+                    if (IconeAtivo is { } icone)
+                        IniciarIconePendente(icone.Picture, icone.NomeArquivo, ponto);
+                    else
+                        Console.Error.WriteLine("[PlantaCanvasEdicaoWeb] Ferramenta Ícone ativa mas nenhum ícone selecionado no menu.");
+                    break;
+                case FerramentaDesenhoWeb.Cota:
+                    _selecaoCotaInicio = ponto;
+                    _selecaoCotaRetangulo = SKRect.Create(ponto.X, ponto.Y, 0, 0);
+                    _canvasView?.Invalidate();
+                    break;
+                case null:
+                    Console.Error.WriteLine("[PlantaCanvasEdicaoWeb] OnPointerDown ignorado: nenhuma ferramenta selecionada.");
+                    break;
+            }
+
             return Task.CompletedTask;
         }
-
-        if (CamadaAtivaId is null)
-            return Task.CompletedTask;
-
-        switch (Ferramenta)
+        catch (Exception ex)
         {
-            case FerramentaDesenhoWeb.Lapis when EstiloLinha == EstiloTracoWeb.Livre:
-                _tracoEmAndamento = new AcaoTraco([ponto], CorTraco, EspessuraTraco, ModoApagar, EstiloTracoWeb.Livre);
-                _canvasView?.Invalidate();
-                break;
-            case FerramentaDesenhoWeb.Lapis:
-                _linhaRetaInicio = ponto;
-                _linhaRetaAtual = ponto;
-                _canvasView?.Invalidate();
-                break;
-            case FerramentaDesenhoWeb.Texto:
-                // Antes usava JS "prompt()" (diálogo nativo bloqueante) pra pedir o texto — suspeito
-                // nº1 do bug "a planta some depois de clicar com Texto ativo, só volta recarregando a
-                // página": um diálogo bloqueante interferindo no loop de renderização do SkiaSharp no
-                // WASM. Agora cria o elemento pendente direto com um texto-modelo e edita ao vivo pelo
-                // campo de texto da própria barra de ferramentas (ver TextoElementoPendente/
-                // DefinirTextoElementoPendente) — sem diálogo nenhum.
-                IniciarTextoPendente("Texto", CorTraco, TamanhoFontePadrao, ponto);
-                break;
-            case FerramentaDesenhoWeb.Icone:
-                if (IconeAtivo is { } icone)
-                    IniciarIconePendente(icone.Picture, icone.NomeArquivo, ponto);
-                break;
-            case FerramentaDesenhoWeb.Cota:
-                _selecaoCotaInicio = ponto;
-                _selecaoCotaRetangulo = SKRect.Create(ponto.X, ponto.Y, 0, 0);
-                _canvasView?.Invalidate();
-                break;
+            Console.Error.WriteLine($"[PlantaCanvasEdicaoWeb] Erro em OnPointerDown: {ex}");
+            return Task.CompletedTask;
         }
-
-        return Task.CompletedTask;
     }
 
     private void OnPointerMove(Microsoft.AspNetCore.Components.Web.PointerEventArgs e)
     {
-        if (ImagemBase is null)
-            return;
-
-        var ponto = ConverterParaNativo(e.OffsetX, e.OffsetY);
-
-        if (_arrastandoElementoPendente && _elementoPendente is { } pendente && _ultimoPontoElementoPendente is { } ultimo)
+        try
         {
-            var deltaX = ponto.X - ultimo.X;
-            var deltaY = ponto.Y - ultimo.Y;
-            pendente.Retangulo = SKRect.Create(pendente.Retangulo.Left + deltaX, pendente.Retangulo.Top + deltaY, pendente.Retangulo.Width, pendente.Retangulo.Height);
-            _ultimoPontoElementoPendente = ponto;
-            _canvasView?.Invalidate();
-            return;
+            if (ImagemBase is null)
+                return;
+
+            var ponto = ConverterParaNativo(e.OffsetX, e.OffsetY);
+
+            if (_arrastandoElementoPendente && _elementoPendente is { } pendente && _ultimoPontoElementoPendente is { } ultimo)
+            {
+                var deltaX = ponto.X - ultimo.X;
+                var deltaY = ponto.Y - ultimo.Y;
+                pendente.Retangulo = SKRect.Create(pendente.Retangulo.Left + deltaX, pendente.Retangulo.Top + deltaY, pendente.Retangulo.Width, pendente.Retangulo.Height);
+                _ultimoPontoElementoPendente = ponto;
+                _canvasView?.Invalidate();
+                return;
+            }
+
+            if (_tracoEmAndamento is not null)
+            {
+                _tracoEmAndamento.Pontos.Add(ponto);
+                _canvasView?.Invalidate();
+                return;
+            }
+
+            if (_linhaRetaInicio is not null)
+            {
+                _linhaRetaAtual = ponto;
+                _canvasView?.Invalidate();
+                return;
+            }
+
+            if (_selecaoCotaInicio is { } inicio)
+            {
+                _selecaoCotaRetangulo = SKRect.Create(
+                    Math.Min(inicio.X, ponto.X), Math.Min(inicio.Y, ponto.Y),
+                    Math.Abs(ponto.X - inicio.X), Math.Abs(ponto.Y - inicio.Y));
+                _canvasView?.Invalidate();
+            }
         }
-
-        if (_tracoEmAndamento is not null)
+        catch (Exception ex)
         {
-            _tracoEmAndamento.Pontos.Add(ponto);
-            _canvasView?.Invalidate();
-            return;
-        }
-
-        if (_linhaRetaInicio is not null)
-        {
-            _linhaRetaAtual = ponto;
-            _canvasView?.Invalidate();
-            return;
-        }
-
-        if (_selecaoCotaInicio is { } inicio)
-        {
-            _selecaoCotaRetangulo = SKRect.Create(
-                Math.Min(inicio.X, ponto.X), Math.Min(inicio.Y, ponto.Y),
-                Math.Abs(ponto.X - inicio.X), Math.Abs(ponto.Y - inicio.Y));
-            _canvasView?.Invalidate();
+            Console.Error.WriteLine($"[PlantaCanvasEdicaoWeb] Erro em OnPointerMove: {ex}");
         }
     }
 
     private async Task OnPointerUp(Microsoft.AspNetCore.Components.Web.PointerEventArgs e)
     {
-        if (_arrastandoElementoPendente)
+        try
         {
-            _arrastandoElementoPendente = false;
-            _ultimoPontoElementoPendente = null;
-            return;
-        }
-
-        if (_tracoEmAndamento is not null)
-        {
-            FinalizarTraco();
-            return;
-        }
-
-        if (_linhaRetaInicio is { } inicio && _linhaRetaAtual is { } fim)
-        {
-            _linhaRetaInicio = null;
-            _linhaRetaAtual = null;
-
-            if (CamadaAtivaId is { } camadaId && (Math.Abs(fim.X - inicio.X) > 0.5f || Math.Abs(fim.Y - inicio.Y) > 0.5f))
+            if (_arrastandoElementoPendente)
             {
-                var traco = new AcaoTraco([inicio, fim], CorTraco, EspessuraTraco, ModoApagar, EstiloLinha);
-                var bitmap = ObterOuCriarBitmapDaCamada(camadaId);
-                using (var canvas = new SKCanvas(bitmap))
-                    DesenharTraco(canvas, traco);
-                _historico.Add(traco);
-                _desfeitas.Clear();
-                NotificarAlteracao();
+                _arrastandoElementoPendente = false;
+                _ultimoPontoElementoPendente = null;
+                return;
             }
-            else
+
+            if (_tracoEmAndamento is not null)
             {
-                _canvasView?.Invalidate();
+                FinalizarTraco();
+                return;
             }
-            return;
+
+            if (_linhaRetaInicio is { } inicio && _linhaRetaAtual is { } fim)
+            {
+                _linhaRetaInicio = null;
+                _linhaRetaAtual = null;
+
+                if (CamadaAtivaId is { } camadaId && (Math.Abs(fim.X - inicio.X) > 0.5f || Math.Abs(fim.Y - inicio.Y) > 0.5f))
+                {
+                    var traco = new AcaoTraco([inicio, fim], CorTraco, EspessuraTraco, ModoApagar, EstiloLinha);
+                    var bitmap = ObterOuCriarBitmapDaCamada(camadaId);
+                    using (var canvas = new SKCanvas(bitmap))
+                        DesenharTraco(canvas, traco);
+                    _historico.Add(traco);
+                    _desfeitas.Clear();
+                    NotificarAlteracao();
+                }
+                else
+                {
+                    _canvasView?.Invalidate();
+                }
+                return;
+            }
+
+            if (_selecaoCotaRetangulo is { } retangulo)
+            {
+                _selecaoCotaInicio = null;
+                _selecaoCotaRetangulo = null;
+
+                if (retangulo is { Width: >= TamanhoMinimoSelecaoCota, Height: >= TamanhoMinimoSelecaoCota })
+                    await ConcluirSelecaoCotaAsync(retangulo);
+                else
+                    _canvasView?.Invalidate();
+            }
         }
-
-        if (_selecaoCotaRetangulo is { } retangulo)
+        catch (Exception ex)
         {
-            _selecaoCotaInicio = null;
-            _selecaoCotaRetangulo = null;
-
-            if (retangulo is { Width: >= TamanhoMinimoSelecaoCota, Height: >= TamanhoMinimoSelecaoCota })
-                await ConcluirSelecaoCotaAsync(retangulo);
-            else
-                _canvasView?.Invalidate();
+            Console.Error.WriteLine($"[PlantaCanvasEdicaoWeb] Erro em OnPointerUp: {ex}");
         }
     }
 
@@ -662,21 +695,39 @@
     /// bom análogo sem toque. Ícone tem prioridade sobre texto no raro caso de sobreposição.</summary>
     private void OnDoubleClick(Microsoft.AspNetCore.Components.Web.MouseEventArgs e)
     {
-        if (ImagemBase is null || _elementoPendente is not null)
-            return;
-
-        var ponto = ConverterParaNativo(e.OffsetX, e.OffsetY);
-
-        var icone = _iconesColocados.LastOrDefault(i => IconeContemPonto(i, ponto));
-        if (icone is not null)
+        try
         {
-            IniciarEdicaoIconeColocado(icone);
-            return;
-        }
+            if (ImagemBase is null || _elementoPendente is not null)
+                return;
 
-        var texto = _textosColocados.LastOrDefault(t => TextoContemPonto(t, ponto));
-        if (texto is not null)
-            IniciarEdicaoTextoColocado(texto);
+            var ponto = ConverterParaNativo(e.OffsetX, e.OffsetY);
+
+            var icone = _iconesColocados.LastOrDefault(i => IconeContemPonto(i, ponto));
+            if (icone is not null)
+            {
+                IniciarEdicaoIconeColocado(icone);
+                return;
+            }
+
+            var texto = _textosColocados.LastOrDefault(t => TextoContemPonto(t, ponto));
+            if (texto is not null)
+            {
+                IniciarEdicaoTextoColocado(texto);
+                return;
+            }
+
+            // Só sabe achar de volta texto/ícone colocados NESTA MESMA sessão de edição (guardados só
+            // em memória, ver _textosColocados/_iconesColocados) — um da sessão anterior (raster puro,
+            // já salvo) não fica rastreado aqui e nunca vai ser encontrado por duplo-clique. Log só pra
+            // diferenciar isso de um bug de hit-test de verdade.
+            Console.Error.WriteLine(
+                $"[PlantaCanvasEdicaoWeb] Duplo-clique em ({ponto.X:F0},{ponto.Y:F0}) não achou nada — " +
+                $"{_textosColocados.Count} texto(s) e {_iconesColocados.Count} ícone(s) rastreados nesta sessão.");
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[PlantaCanvasEdicaoWeb] Erro em OnDoubleClick: {ex}");
+        }
     }
 
     /// <summary>Apaga só a área do retângulo de um ícone colocado (transparente, respeitando a

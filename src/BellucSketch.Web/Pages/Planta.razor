@@ -67,10 +67,10 @@
             {
                 <div class="planta-edicao-toolbar">
                     <div class="edicao-grupo">
-                        <button class="@FerramentaClasse(FerramentaDesenhoWeb.Lapis)" @onclick="() => _ferramenta = FerramentaDesenhoWeb.Lapis">✏️ Lápis</button>
-                        <button class="@FerramentaClasse(FerramentaDesenhoWeb.Texto)" @onclick="() => _ferramenta = FerramentaDesenhoWeb.Texto">🔤 Texto</button>
+                        <button class="@FerramentaClasse(FerramentaDesenhoWeb.Lapis)" @onclick="() => AlternarFerramenta(FerramentaDesenhoWeb.Lapis)">✏️ Lápis</button>
+                        <button class="@FerramentaClasse(FerramentaDesenhoWeb.Texto)" @onclick="() => AlternarFerramenta(FerramentaDesenhoWeb.Texto)">🔤 Texto</button>
                         <button class="@FerramentaClasse(FerramentaDesenhoWeb.Icone)" @onclick="AlternarMenuIcones">🧩 Ícones</button>
-                        <button class="@FerramentaClasse(FerramentaDesenhoWeb.Cota)" @onclick="() => _ferramenta = FerramentaDesenhoWeb.Cota">🔍 Cota</button>
+                        <button class="@FerramentaClasse(FerramentaDesenhoWeb.Cota)" @onclick="() => AlternarFerramenta(FerramentaDesenhoWeb.Cota)">🔍 Cota</button>
                     </div>
 
                     @if (_canvasEdicao is { ProcessandoOcr: true })
@@ -180,7 +180,21 @@
     </div>
 
     <div class="planta-camadas-area">
-        <h5>Camadas</h5>
+        <div class="camadas-cabecalho">
+            <h5>Camadas</h5>
+            <!-- Antes não existia NENHUMA forma de criar uma camada nova pela Web (só "Ícones" era
+                 criada sozinha) — pedido do usuário. -->
+            <button class="camadas-botao-nova" title="Nova camada" @onclick="() => _mostrarFormNovaCamada = !_mostrarFormNovaCamada">+ Nova</button>
+        </div>
+
+        @if (_mostrarFormNovaCamada)
+        {
+            <div class="camadas-form-nova">
+                <input type="text" placeholder="Nome da camada" @bind="_nomeNovaCamada" @bind:event="oninput"
+                       @onkeydown="@(e => e.Key == "Enter" ? CriarCamadaAsync() : Task.CompletedTask)" />
+                <button @onclick="CriarCamadaAsync" disabled="@string.IsNullOrWhiteSpace(_nomeNovaCamada)">Criar</button>
+            </div>
+        }
 
         <div class="camadas-painel">
             @foreach (var camada in ViewModel.Camadas)
@@ -281,10 +295,15 @@
     private bool _telaCheia;
     private bool? _ajusteZoomPendentePara;
 
-    private FerramentaDesenhoWeb _ferramenta = FerramentaDesenhoWeb.Lapis;
+    // Nullable de propósito: null = nenhuma ferramenta ativa (clicar na planta não faz nada). Antes
+    // era sempre uma ferramenta (Lápis por padrão) e não dava pra "desligar" nenhuma — pedido do
+    // usuário: clicar na ferramenta já ativa desativa em vez de ficar presa selecionada pra sempre.
+    private FerramentaDesenhoWeb? _ferramenta;
     private EstiloTracoWeb _estiloLinha = EstiloTracoWeb.Livre;
     private bool _mostrarMenuIcones;
     private (SKPicture Picture, string NomeArquivo)? _iconeAtivo;
+    private bool _mostrarFormNovaCamada;
+    private string _nomeNovaCamada = string.Empty;
 
     /// <summary>Largura aproximada usada só como fallback caso a medição via JS interop falhe
     /// (ex.: elemento ainda não presente no DOM).</summary>
@@ -503,6 +522,17 @@
 
     private string FerramentaClasse(FerramentaDesenhoWeb ferramenta) => _ferramenta == ferramenta ? "ativo" : "";
 
+    /// <summary>Clicar na ferramenta já ativa desativa (volta pra "nenhuma") em vez de ficar sempre
+    /// selecionada — pedido do usuário. Trocar de ferramenta cancela um elemento pendente em aberto
+    /// (texto/ícone soltos, ainda não confirmados) pra não ficar um "fantasma" perdido no meio do ar
+    /// depois de mudar de ferramenta.</summary>
+    private void AlternarFerramenta(FerramentaDesenhoWeb ferramenta)
+    {
+        _canvasEdicao?.CancelarElementoPendente();
+        _mostrarMenuIcones = false;
+        _ferramenta = _ferramenta == ferramenta ? null : ferramenta;
+    }
+
     private async Task EditarCamadaAsync(BellucSketch.Contracts.CamadaDto camada)
     {
         if (camada.Bloqueada)
@@ -529,10 +559,31 @@
             _canvasEdicao?.LimparCamadaAtiva();
     }
 
+    private async Task CriarCamadaAsync()
+    {
+        var nome = _nomeNovaCamada.Trim();
+        if (string.IsNullOrWhiteSpace(nome))
+            return;
+
+        await ViewModel.CriarCamadaAsync(nome);
+        _nomeNovaCamada = string.Empty;
+        _mostrarFormNovaCamada = false;
+    }
+
     private void AlternarMenuIcones()
     {
+        if (_ferramenta == FerramentaDesenhoWeb.Icone)
+        {
+            // Já ativa: desliga a ferramenta E fecha o menu (mesmo comportamento de toggle das outras).
+            _canvasEdicao?.CancelarElementoPendente();
+            _ferramenta = null;
+            _mostrarMenuIcones = false;
+            return;
+        }
+
+        _canvasEdicao?.CancelarElementoPendente();
         _ferramenta = FerramentaDesenhoWeb.Icone;
-        _mostrarMenuIcones = !_mostrarMenuIcones;
+        _mostrarMenuIcones = true;
     }
 
     private async Task SelecionarIconeAsync(string nomeArquivo)
