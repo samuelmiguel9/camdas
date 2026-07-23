@@ -33,6 +33,39 @@ window.camdasInterop = {
         document.body.removeChild(link);
     },
 
+    // ESC como "coringa" de voltar/cancelar + Ctrl+Z/Ctrl+Y de desfazer/refazer — pedido do usuário.
+    // Registrado uma vez só no document (idempotente via flag global) pra funcionar não importa
+    // onde o foco esteja. Ignora Ctrl+Z/Y quando o foco está num campo de texto/textarea/select: senão
+    // roubaria o desfazer NATIVO de digitação do navegador nesses campos (texto pendente, nome de
+    // camada nova), que é o que o usuário espera ali.
+    habilitarAtalhosTeclado: function (dotNetRef) {
+        if (window.__camdasAtalhosHabilitado) return;
+        window.__camdasAtalhosHabilitado = true;
+
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape') {
+                dotNetRef.invokeMethodAsync('OnTeclaEsc');
+                return;
+            }
+
+            var alvo = e.target;
+            var emCampoDeTexto = alvo && (alvo.tagName === 'INPUT' || alvo.tagName === 'TEXTAREA' || alvo.isContentEditable);
+            if (emCampoDeTexto) return;
+
+            var ctrl = e.ctrlKey || e.metaKey;
+            if (!ctrl) return;
+
+            var tecla = e.key.toLowerCase();
+            if (tecla === 'z' && !e.shiftKey) {
+                e.preventDefault();
+                dotNetRef.invokeMethodAsync('OnAtalhoDesfazer');
+            } else if (tecla === 'y' || (tecla === 'z' && e.shiftKey)) {
+                e.preventDefault();
+                dotNetRef.invokeMethodAsync('OnAtalhoRefazer');
+            }
+        });
+    },
+
     // Zoom com Ctrl+scroll (equivalente desktop da pinça de zoom do tablet — pedido do usuário: no
     // mouse não tem pinça). Sem "passive: false" o preventDefault não funciona e o navegador aplica o
     // próprio zoom de página junto (Ctrl+scroll nativo do Chrome/Firefox), competindo com o slider.

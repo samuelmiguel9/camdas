@@ -141,6 +141,13 @@
 
     protected override void OnParametersSet()
     {
+        // Qualquer novo conjunto de parâmetros (opacidade/visibilidade/ordem mudou na página pai, uma
+        // camada foi criada/removida, a própria composição de bitmaps mudou) pode ter alterado o
+        // resultado visual — invalida o cache abaixo (ver InvalidarComposicaoCache) incondicionalmente,
+        // ANTES do "early return" por CamadaAtivaId (que só controla o histórico de undo/redo, não a
+        // composição em si).
+        InvalidarComposicaoCache();
+
         if (CamadaAtivaId == _camadaAtivaIdAnterior)
             return;
 
@@ -247,9 +254,37 @@
 
     private void NotificarAlteracao()
     {
+        InvalidarComposicaoCache();
         _canvasView?.Invalidate();
         if (OnDesenhoAlterado.HasDelegate)
             _ = OnDesenhoAlterado.InvokeAsync();
+    }
+
+    // --- Cache da composição (imagem base + todas as camadas) ---
+
+    private SKBitmap? _composicaoCache;
+    private bool _composicaoCacheSuja = true;
+
+    /// <summary>Compor a imagem base + TODAS as camadas (várias DrawBitmap, uma por camada visível)
+    /// era refeito do zero em TODO frame — inclusive nos dezenas de frames por segundo de um arrasto
+    /// (desenhar traço livre, mover elemento pendente, redimensionar seleção de cota), cada um
+    /// recompondo a planta inteira só pra depois desenhar uma prévia por cima. Numa planta grande de
+    /// verdade (não o 1x1 de teste), isso é pesado o bastante pra travar a interação (reportado como
+    /// "travando muito"). A composição só muda quando uma ação de desenho é confirmada ou quando os
+    /// parâmetros da camada mudam (ver NotificarAlteracao/OnParametersSet) — nesses casos ela fica
+    /// "suja" e é recalculada uma vez; em todo outro frame (a maioria, durante um arrasto) só reusa o
+    /// bitmap já pronto com um único DrawBitmap, barato.</summary>
+    private void InvalidarComposicaoCache() => _composicaoCacheSuja = true;
+
+    private SKBitmap? ObterComposicaoCache()
+    {
+        if (!_composicaoCacheSuja && _composicaoCache is not null)
+            return _composicaoCache;
+
+        _composicaoCache?.Dispose();
+        _composicaoCache = ImagemBase is not null ? RenderizarComposicaoAtual() : null;
+        _composicaoCacheSuja = false;
+        return _composicaoCache;
     }
 
     // --- Captura de ponteiro ---
@@ -889,7 +924,13 @@
         try
         {
             canvas.Scale((float)Zoom);
-            PlantaOverlayRenderer.Desenhar(canvas, Camadas, ImagemBase, ImagensPorCamada);
+
+            // Composição cacheada (ver ObterComposicaoCache) — um único DrawBitmap na maioria dos
+            // frames, em vez de recompor a planta inteira (imagem base + cada camada) a cada frame de
+            // um arrasto, que travava a interação em plantas grandes de verdade.
+            var composicao = ObterComposicaoCache();
+            if (PlantaOverlayRenderer.PodeDesenhar(composicao))
+                canvas.DrawBitmap(composicao, 0, 0);
 
             if (_tracoEmAndamento is { } traco)
                 DesenharTracoPreview(canvas, traco);
@@ -1082,5 +1123,7 @@
     {
         _bitmapBaseHistorico?.Dispose();
         _bitmapBaseHistorico = null;
+        _composicaoCache?.Dispose();
+        _composicaoCache = null;
     }
 }

@@ -347,12 +347,76 @@
             await JS.InvokeVoidAsync("camdasInterop.definirModoDesenho", "planta-canvas-wrapper", ViewModel.ModoEdicao);
             _dotNetRef ??= DotNetObjectReference.Create(this);
             await JS.InvokeVoidAsync("camdasInterop.habilitarZoomCtrlScroll", "planta-canvas-wrapper", _dotNetRef);
+            await JS.InvokeVoidAsync("camdasInterop.habilitarAtalhosTeclado", _dotNetRef);
             if (_telaCheia)
             {
                 await JS.InvokeVoidAsync("camdasInterop.habilitarArrastarPan", "planta-fullscreen-wrapper");
                 await JS.InvokeVoidAsync("camdasInterop.habilitarZoomCtrlScroll", "planta-fullscreen-wrapper", _dotNetRef);
             }
         }
+    }
+
+    /// <summary>ESC como "coringa" pra voltar/cancelar (pedido do usuário) — desfaz o estado mais
+    /// "interno" primeiro, na ordem que faz mais sentido pro usuário (o que está mais em foco agora):
+    /// elemento pendente solto > menu de ícones/form de nova camada abertos > ferramenta selecionada >
+    /// tela cheia > modo de edição (volta pra visualização). Só age em UM desses por vez — apertar de
+    /// novo continua "voltando" um passo a cada vez, em vez de sair tudo de uma vez.</summary>
+    [JSInvokable]
+    public void OnTeclaEsc()
+    {
+        if (_canvasEdicao is { TemElementoPendente: true })
+        {
+            _canvasEdicao.CancelarElementoPendente();
+            return;
+        }
+
+        if (_mostrarMenuIcones)
+        {
+            _mostrarMenuIcones = false;
+            StateHasChanged();
+            return;
+        }
+
+        if (_mostrarFormNovaCamada)
+        {
+            _mostrarFormNovaCamada = false;
+            StateHasChanged();
+            return;
+        }
+
+        if (_ferramenta is not null)
+        {
+            _ferramenta = null;
+            StateHasChanged();
+            return;
+        }
+
+        if (_telaCheia)
+        {
+            FecharTelaCheia();
+            return;
+        }
+
+        if (ViewModel.ModoEdicao)
+            _ = SairDaEdicaoAsync();
+    }
+
+    /// <summary>Ctrl+Z — pedido do usuário (atalho de desktop pra desfazer). Ignorado enquanto o foco
+    /// está num campo de texto (ver camdasInterop.habilitarAtalhosTeclado): senão roubaria o desfazer
+    /// NATIVO de digitação do próprio campo (texto pendente, nome de camada nova).</summary>
+    [JSInvokable]
+    public void OnAtalhoDesfazer()
+    {
+        if (_canvasEdicao is { TemAcaoParaDesfazer: true })
+            _canvasEdicao.Desfazer();
+    }
+
+    /// <summary>Ctrl+Y / Ctrl+Shift+Z — refazer, par natural do Ctrl+Z acima.</summary>
+    [JSInvokable]
+    public void OnAtalhoRefazer()
+    {
+        if (_canvasEdicao is { TemAcaoParaRefazer: true })
+            _canvasEdicao.Refazer();
     }
 
     /// <summary>Chamado pelo JS (camdasInterop.habilitarZoomCtrlScroll) a cada "wheel" com Ctrl
