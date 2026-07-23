@@ -121,22 +121,6 @@
     margin-left: 4px;
 }
 
-.camada-pendente-inline {
-    font-size: 0.9rem;
-    margin-left: 4px;
-    cursor: help;
-}
-
-.camada-pendente-aviso {
-    background-color: #4a3b0a;
-    color: #ffd479;
-    border: 1px solid #6b5715;
-    border-radius: 4px;
-    padding: 6px 10px;
-    font-size: 0.85rem;
-    cursor: help;
-}
-
 .camada-ordem {
     display: flex;
     flex-direction: column;
@@ -182,6 +166,148 @@
 .planta-zoom-valor {
     min-width: 3.5rem;
     text-align: right;
+}
+
+/* Barra de ações da planta: aba Visualização/Edição + Baixar/Excluir (ver Planta.razor). Fica acima
+   do layout de duas colunas, sempre visível independente do modo. */
+.planta-auditoria {
+    color: #6c757d;
+    font-size: 0.85rem;
+    margin-top: -0.5rem;
+    margin-bottom: 1rem;
+}
+
+.planta-acoes-barra {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.planta-abas {
+    display: flex;
+    gap: 4px;
+}
+
+.planta-abas button {
+    background-color: transparent;
+    border: 1px solid #ced4da;
+    border-radius: 4px;
+    padding: 6px 14px;
+    color: inherit;
+}
+
+.planta-abas button.aba-ativa {
+    background-color: #2E86DE;
+    color: #fff;
+    border-color: #2E86DE;
+}
+
+.planta-acoes {
+    display: flex;
+    gap: 8px;
+}
+
+.planta-acoes button {
+    border: 1px solid #ced4da;
+    border-radius: 4px;
+    padding: 6px 14px;
+    background-color: transparent;
+    color: inherit;
+}
+
+.planta-acao-excluir {
+    color: #e74c3c;
+    border-color: #e74c3c !important;
+}
+
+.planta-acao-excluir:hover {
+    background-color: #e74c3c;
+    color: #fff;
+}
+
+/* Barra de ferramentas de edição (lápis/borracha/texto/ícones/cota/undo-redo/salvar) — aparece só
+   quando ViewModel.ModoEdicao está ligado (ver Planta.razor). Mesma paleta escura do painel de
+   camadas, pra parecer parte do mesmo conjunto visual. */
+.planta-edicao-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+    background-color: #2e2e2e;
+    border: 1px solid #1e1e1e;
+    border-radius: 4px;
+    padding: 8px 10px;
+    margin-bottom: 8px;
+}
+
+.edicao-grupo {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.planta-edicao-toolbar button {
+    background-color: #3a3a3a;
+    border: 1px solid #1e1e1e;
+    color: #dcdcdc;
+    border-radius: 4px;
+    padding: 4px 8px;
+    white-space: nowrap;
+}
+
+.planta-edicao-toolbar button:hover:not(:disabled) {
+    background-color: #484848;
+}
+
+.planta-edicao-toolbar button:disabled {
+    opacity: 0.4;
+}
+
+.planta-edicao-toolbar button.ativo {
+    background-color: #2E86DE;
+    color: #fff;
+    border-color: #2E86DE;
+}
+
+.planta-edicao-toolbar select {
+    background-color: #3a3a3a;
+    color: #dcdcdc;
+    border: 1px solid #1e1e1e;
+    border-radius: 4px;
+    padding: 4px;
+}
+
+.edicao-menu-icones {
+    flex-basis: 100%;
+}
+
+.edicao-status-ocr {
+    color: #f1c40f;
+    font-style: italic;
+}
+
+.edicao-texto-pendente {
+    background-color: #3a3a3a;
+    color: #fff;
+    border: 1px solid #2E86DE;
+    border-radius: 4px;
+    padding: 4px 8px;
+    min-width: 160px;
+}
+
+.btn-salvar {
+    background-color: #27ae60 !important;
+    color: #fff !important;
+    border-color: #27ae60 !important;
+}
+
+/* Destaca na barra lateral qual camada está sendo desenhada agora. */
+.camada-em-edicao {
+    outline: 2px solid #2E86DE;
 }
 
 /* Wrapper com barra de rolagem: a planta pode ficar maior que a área visível (zoom alto ou imagem

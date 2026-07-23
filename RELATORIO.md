@@ -739,6 +739,136 @@ regenerando o ícone com o glifo a ~60% de escala num canvas de 900×900, verifi
 esta fase (`PlantaViewModelTests.cs`, ver Fase 10). Instalado via `adb install -r` e testado num
 Samsung Galaxy Tab A físico. Publicado como GitHub Release `v2.1.0`.
 
+## Fase 13 — Ferramenta de desenho na Web (2026-07-23)
+
+**O que motivou esta fase.** Até aqui, `BellucSketch.Web` era só um visualizador: mostrava a
+composição das camadas e permitia mexer em metadado (visibilidade, opacidade, bloqueio, ordem,
+exclusão), mas desenhar/editar o traço em si era exclusivo do Android (o "mestre"). O usuário pediu
+pra trazer essa capacidade pro navegador, com duas decisões explícitas de escopo: (1) a Web deveria
+ficar **livre**, sem nenhum pedido de aprovação — o técnico continua tendo a palavra final porque pode
+mexer por cima depois no Android, não porque a Web precisa pedir licença primeiro; (2) a ferramenta de
+cota com OCR deveria entrar já nesta leva, mesmo sem um equivalente óbvio ao Google ML Kit (nativo
+Android) rodando num navegador.
+
+**1. Fim do fluxo de aprovação na Web.** `PlataformaEdicaoWeb` (só "Excluir camada" pedia
+responsável/motivo via `prompt()`) foi apagada; o `Program.cs` da Web passou a registrar
+`IPlataformaEdicao` com `PlataformaEdicaoDireta` — a mesma classe que o Android já usava, que sempre
+retorna `PrecisaAprovacao() => false`. Como esse registro é a única fonte de novas
+`EdicaoPendenteCamada` (o Android nunca gerava uma), o backend inteiro desse fluxo
+(`EdicaoPendenteCamada`, migrations, `EdicoesPendentesController`, `RevisaoEdicoesPage`) fica dormente
+— **deliberadamente não removido**, por ser uma decisão de limpeza maior e separada do que foi pedido.
+O aviso "⏳ pendente" (`Planta.razor`) foi removido, já que nunca mais teria o que mostrar de novo.
+
+**2. Ícones técnicos viraram fonte compartilhada.** Os 7 SVGs saíram de
+`src/BellucSketch.Mobile/Resources/Raw/Icones` para `assets/icones-tecnicos` (raiz do repo) — decisão
+explícita do usuário pra evitar duplicar bytes versionados entre Android e Web. O Android continua
+carregando exatamente como antes (`MauiAsset` aponta pro novo caminho, `LogicalName` preservado, então
+`IconeSvgCatalogo.cs` não mudou uma linha); a Web ganhou `IconeSvgCatalogoWeb` (mesmo cache em memória,
+mesmo motivo pra nunca descartar o `SKSvg`), buscando cada ícone via `HttpClient` em `wwwroot/icones/`.
+
+**3. `PlantaCanvasEdicaoWeb` — o motor de desenho novo.** Em vez de refatorar o `PlantaCanvasView` do
+Android (2000+ linhas, testado em produção) pra extrair uma parte compartilhada, optei por um
+componente Blazor **novo e próprio** (`src/BellucSketch.Web/Rendering/PlantaCanvasEdicaoWeb.razor`) —
+trade-off deliberado: evita qualquer risco de regressão no app já publicado, ao custo de duplicar a
+lógica de desenho (ideia de unificação futura registrada como possível follow-up, não parte deste
+trabalho). Reaproveita 100% o que já era compartilhado (`PlantaViewModel`, `PlantaOverlayRenderer`,
+upload/download de PNG por camada) e reimplementa, pro navegador:
+
+- **Captura de ponteiro**: `@onpointerdown/move/up/cancel` nativos do Blazor (`PointerEventArgs`, sem
+  precisar de JS interop pra leitura de coordenada) num `<div>` que envolve o `SKCanvasView`
+  (`SkiaSharp.Views.Blazor`) — só foi preciso um pedacinho de JS (`capturarPonteiro` em `planta.js`)
+  pra chamar `setPointerCapture`, sem o que um arrasto rápido que sai da área do elemento perderia os
+  `pointermove` seguintes.
+- **Traço livre**: mesma suavização por curva Bézier quadrática (`DesenharCaminhoDoTraco`) do Android
+  — pontos acumulados durante o arrasto, só "queimados" no bitmap da camada ao soltar (`FinalizarTraco`),
+  com uma prévia ao vivo desenhada por cima da composição já cacheada enquanto o gesto está em
+  andamento (mesmo motivo do Android pra não recompor tudo a cada amostra de ponteiro).
+- **Borracha**: `SKBlendMode.Clear` na gravação real; prévia ao vivo com traço branco translúcido
+  (mesmo cuidado do Android — `Clear` numa superfície de tela já composta, sem nada por baixo, pinta
+  preto em vez de mostrar transparência).
+- **Undo/redo**: mesma estratégia do Android — histórico de ações (`AcaoTraco`/`AcaoTexto`) + replay
+  sobre um snapshot-base da camada capturado ao entrar em edição, reconstruído do zero a cada
+  desfazer/refazer.
+- **Texto e ícones**: viram um "elemento pendente" (arrastável, girável em passos de 90°,
+  redimensionável) até o usuário confirmar — texto pede o conteúdo via `prompt()` do navegador (mesmo
+  padrão já usado pela antiga `PlataformaEdicaoWeb` pra responsável/motivo); ícone sempre grava na
+  camada especial "Ícones", nunca na camada ativa, igual ao Android.
+- **Cortes de escopo deliberados** (não bugs, decisão consciente pra não estourar o tamanho desta
+  fase): sem a interação de "segurar pra pegar de volta" um ícone/texto já confirmado — só dá pra
+  ajustar antes de confirmar; a tela cheia continua só de visualização (editar fica no painel normal,
+  evita ter que sincronizar histórico de undo/redo entre duas instâncias do motor).
+
+**4. Ferramenta de cota com OCR via Tesseract.js.** Sem equivalente direto ao Google ML Kit num
+navegador, optei por **Tesseract.js** (motor OCR compilado pra WebAssembly, roda 100% no cliente, sem
+chamada de rede nem chave de API — mesmo espírito "on-device" do ML Kit) vendorizado em
+`wwwroot/lib/tesseract` (script + worker + as 4 variantes do núcleo wasm que a lib recomenda deixar
+disponíveis pra ela escolher em runtime conforme suporte a SIMD do navegador, ~36MB no total, baixados
+sob demanda e cacheados pelo navegador) e dados de treinamento em português (`por.traineddata.gz`,
+variante "fast" do tessdata). Criei `IOcrService` (`Mobile.Core/Services`) como interface
+compartilhada — `OcrTextoService` (Android) passou a implementá-la sem mudar nenhuma linha de
+comportamento; `OcrServicoWeb` (novo) chama o Tesseract.js via `IJSRuntime`
+(`wwwroot/js/ocr.js`, worker mantido vivo pela sessão da página, mesmo motivo do `_reconhecedor`
+singleton do Android). Diferente do Android, a Web **não** cobre automaticamente o número antigo
+detectado (o Android detecta cor de fundo + área de tinta pra gerar uma máscara pixel-a-pixel — ver
+Fase 11) — simplificação deliberada da primeira versão; o texto reconhecido só pré-preenche o modo
+texto pra o usuário confirmar/corrigir, sem apagar o que já estava impresso.
+
+**Bug real encontrado e corrigido durante o teste manual.** A primeira tentativa de servir os ícones
+compartilhados usou `<Content Include="..\..\assets\icones-tecnicos\**" LinkBase="wwwroot\icones" />`
+no `.csproj` — aparecia corretamente no manifesto de static web assets (`staticwebassets.build.json`/
+`.development.json`, rota `icones/agua_fria.svg` presente) e funcionava numa publicação real, mas
+voltava **404** no servidor de desenvolvimento (`dotnet run`). Causa raiz: o manifesto de
+desenvolvimento do Blazor mapeia cada asset ao `ContentRootIndex` 0 (a pasta `wwwroot` física do
+próprio projeto) — arquivos que só existem fisicamente FORA da árvore do projeto (nosso caso,
+`assets/icones-tecnicos` na raiz do repo) e chegam via `Content`/`LinkBase` não têm um content-root
+próprio nesse manifesto, então o dev server procura no lugar errado. Corrigido substituindo o
+`Content`/`LinkBase` por um target de build (`CopiarIconesTecnicosCompartilhados`, roda em
+`BeforeBuild`) que copia de fato os SVGs pra `wwwroot/icones` — funciona idêntico em dev e em publish,
+já que os arquivos passam a existir de verdade dentro do `wwwroot` do projeto; `wwwroot/icones/` foi
+pro `.gitignore` (é gerado, a fonte real continua em `assets/icones-tecnicos`).
+
+**Bug real encontrado pelo usuário testando no navegador local: a planta aparecia cortada, presa num
+canto, em QUALQUER zoom (100%, 300%, "Ajustar à tela" não mudava nada).** Diagnóstico errado na
+primeira tentativa (achei que era a `<div>` extra ao redor do canvas ficando dessincronizada — remover
+essa div e splatar os eventos direto no `SKCanvasView` não resolveu, o usuário confirmou que continuava
+cortado). Causa raiz de verdade, encontrada só depois de baixar o código-fonte oficial do
+`SkiaSharp.Views.Blazor.SKCanvasView` da tag exata da versão instalada (`v3.119.4`, repositório
+`mono/SkiaSharp`): esse componente **não tem** propriedades `WidthRequest`/`HeightRequest` — isso
+existe só na versão MAUI/Android do mesmo nome (`SkiaSharp.Views.Maui.Controls.SKCanvasView`, que É
+usada no Android, ver `PlantaCanvasView`). O componente Blazor só declara
+`[Parameter(CaptureUnmatchedValues = true)] AdditionalAttributes`, que absorve QUALQUER atributo
+desconhecido (inclusive `WidthRequest`/`HeightRequest`) e o repassa como um atributo HTML literal e
+sem significado pro `<canvas>` via `@attributes`; o navegador simplesmente ignora um atributo HTML
+chamado "WidthRequest". O tamanho real do canvas (tanto o box CSS quanto a resolução do raster
+interno) vem de `SizeWatcher` — um `ResizeObserver` que lê `clientWidth`/`clientHeight` do próprio
+elemento e dispara `Invalidate()` com esse tamanho. Sem nenhum `style` explícito definindo largura/
+altura, o `<canvas>` cai no tamanho padrão do HTML (300×150) — e como o desenho em si ainda escala
+corretamente por `canvas.Scale(zoom)` dentro de `OnPaintSurface`, o resultado é exatamente o
+sintoma relatado: a composição aparece "certa" proporcionalmente, só que espremida/cortada dentro de
+uma janela sempre do mesmo tamanho fixo, não importa o valor do zoom.
+
+**Isso não é um bug introduzido nesta fase** — o `SKCanvasView` de só-visualização em `Planta.razor`
+(normal e tela cheia) já usava exatamente o mesmo `WidthRequest`/`HeightRequest` sem efeito desde antes,
+provavelmente copiado por analogia do padrão MAUI/Android (onde essas propriedades existem de verdade,
+como `VisualElement.WidthRequest`). Corrigido nos três `SKCanvasView` da Web (visualização normal, tela
+cheia e o novo `PlantaCanvasEdicaoWeb`) trocando `WidthRequest`/`HeightRequest` por um `style="width:
+...px; height:...px;"` de verdade — como atributos de **componente** Razor não aceitam markup e
+expressão C# misturados no mesmo valor (só elementos HTML puros aceitam), o `style` precisou virar uma
+única propriedade computada (`EstiloCanvasNormal`/`EstiloCanvas`) em vez de string interpolada inline.
+
+**Verificação.** `dotnet build` de `BellucSketch.Web` e de `BellucSketch.Mobile` (`-f net9.0-android`)
+limpos, sem novos warnings além dos já existentes. Rodei a Api e o Web localmente (Postgres local já
+configurado): confirmei por `curl` que os assets novos (ícones, `tesseract.min.js`, `worker.min.js`,
+as 4 variantes do núcleo wasm, `por.traineddata.gz`) respondem 200 no dev server, e reproduzi via API
+crua o mesmo roundtrip que o novo motor de desenho depende (`POST /api/plantas` com imagem,
+`POST .../camadas`, `PUT`/`GET .../camadas/{id}/imagem`) — upload e download batem byte a byte.
+**Limitação importante**: este ambiente de execução não tem `chromium-cli` nem Node+Playwright
+disponíveis, então não foi possível dirigir um navegador de verdade sozinho — o teste real (incluindo
+achar e confirmar o bug do canvas acima) foi feito pelo usuário, rodando o `dotnet run` localmente na
+própria máquina e reportando prints de tela. Interações mais profundas (desenhar uma curva de fato,
+undo/redo, posicionar/confirmar texto e ícone, o OCR rodando no navegador) ainda não foram
+exercitadas.
+
 ## Como este relatório é mantido
 
 Cada vez que uma fase é concluída (ou revisada), a seção correspondente aqui é atualizada com: o que

@@ -61,6 +61,11 @@
 
 		<!-- Raw Assets (also remove the "Resources\Raw" prefix) -->
 		<MauiAsset Include="Resources\Raw\**" LogicalName="%(RecursiveDir)%(Filename)%(Extension)" />
+
+		<!-- Ícones técnicos: compartilhados com BellucSketch.Web (mesma pasta física, sem
+		     duplicar bytes) — ver assets\icones-tecnicos na raiz do repo. LogicalName mantido
+		     "Icones\arquivo.svg" pra IconeSvgCatalogo.cs não precisar mudar. -->
+		<MauiAsset Include="..\..\assets\icones-tecnicos\**" LogicalName="Icones\%(Filename)%(Extension)" />
 	</ItemGroup>
 
 	<ItemGroup>

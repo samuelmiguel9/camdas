@@ -26,7 +26,31 @@ namespace BellucSketch.Mobile.ViewModels;
 public partial class PlantaViewModel(IApiClient apiClient, ISalvadorGaleria salvadorGaleria, IPlataformaEdicao plataformaEdicao) : BaseViewModel
 {
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ResumoAuditoria))]
     private PlantaDto? _planta;
+
+    /// <summary>"Criado em .../por ... · Modificado em .../por ..." — resumo pronto pra exibir (ver
+    /// PlantaPage.xaml e Web/Pages/Planta.razor), montado a partir do que ObterPlantaQueryHandler já
+    /// resolve (histórico de auditoria). Omite "Modificado" quando nada aconteceu depois da criação
+    /// (mesmo instante/autor). Vazio enquanto a planta ainda não carregou.</summary>
+    public string ResumoAuditoria
+    {
+        get
+        {
+            if (Planta is not { } planta)
+                return string.Empty;
+
+            var criado = $"Criado em {planta.DataImportacao:dd/MM/yyyy HH:mm}" +
+                (planta.NomeCriador is { } criador ? $" por {criador}" : string.Empty);
+
+            if (planta.UltimaModificacaoEm is not { } modificadoEm || modificadoEm <= planta.DataImportacao)
+                return criado;
+
+            var modificado = $"Modificado em {modificadoEm:dd/MM/yyyy HH:mm}" +
+                (planta.NomeUltimoModificador is { } modificador ? $" por {modificador}" : string.Empty);
+            return $"{criado} · {modificado}";
+        }
+    }
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CamadaEmEdicaoId))]
@@ -313,6 +337,31 @@ public partial class PlantaViewModel(IApiClient apiClient, ISalvadorGaleria salv
     }
 
     public void SairDaEdicao() => ModoEdicao = false;
+
+    /// <summary>Entra no modo de edição sem uma camada específica em mente — usado pela aba
+    /// "Edição" da barra de ações da planta (Web), que troca pro modo de desenho antes do usuário
+    /// escolher a camada no painel lateral. Reaproveita a última camada ativa, se ainda existir e não
+    /// estiver bloqueada; senão cai na primeira camada desbloqueada da lista.</summary>
+    public void EntrarEmModoEdicao()
+    {
+        var alvo = CamadaAtiva is { Bloqueada: false } atual && Camadas.Any(c => c.Id == atual.Id)
+            ? atual
+            : Camadas.FirstOrDefault(c => !c.Bloqueada);
+
+        if (alvo is not null)
+            EditarCamada(alvo);
+    }
+
+    /// <summary>Exclui a planta inteira (e todas as suas camadas) — sem aprovação, mesma regra das
+    /// demais operações "livres" na Web (só "excluir CAMADA" passa por aprovação, ver
+    /// SolicitarOuExecutarAsync). Quem chama decide pra onde navegar depois.</summary>
+    public async Task ExcluirPlantaAsync()
+    {
+        if (Planta is null)
+            return;
+
+        await apiClient.RemoverPlantaAsync(Planta.Id);
+    }
 
     /// <summary>Salva o traço da camada ativa no servidor. Encode direto do SKBitmap (não via
     /// SKImage.FromBitmap) — ver comentário em <see cref="SalvarComposicaoNaGaleriaAsync"/> sobre o

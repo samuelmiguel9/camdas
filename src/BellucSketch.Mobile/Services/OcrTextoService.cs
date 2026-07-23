@@ -15,7 +15,7 @@ namespace BellucSketch.Mobile.Services;
 /// cref="_reconhecedor"/>) é caro de criar e não muda de configuração durante a execução do app, por
 /// isso vive uma única vez (singleton, ver MauiProgram).
 /// </summary>
-public sealed class OcrTextoService
+public sealed class OcrTextoService : IOcrService
 {
     private readonly ITextRecognizer _reconhecedor = TextRecognition.GetClient(TextRecognizerOptions.DefaultOptions!);
 

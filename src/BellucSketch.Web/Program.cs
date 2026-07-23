@@ -22,14 +22,23 @@ builder.Services.AddTransient<TokenAuthHandler>();
 builder.Services.AddSingleton<ISalvadorGaleria, SalvadorGaleriaNaoSuportado>();
 builder.Services.AddSingleton<IVerificadorAtualizacao, VerificadorAtualizacaoNaoSuportado>();
 
-// Web é auxiliar: edições de Camada viram propostas pendentes de aprovação de um técnico no Android
-// (mestre) em vez de aplicar direto — ver PlataformaEdicaoWeb.
-builder.Services.AddScoped<IPlataformaEdicao, PlataformaEdicaoWeb>();
+// Web também desenha/edita direto, sem pedir aprovação — mesma decisão do Android
+// (PlataformaEdicaoDireta, já em Mobile.Core): o técnico segue tendo a palavra final
+// porque pode mexer por cima depois no Android, não porque a Web precisa pedir licença.
+builder.Services.AddScoped<IPlataformaEdicao, PlataformaEdicaoDireta>();
 
 builder.Services.AddHttpClient<IApiClient, ApiClient>(cliente =>
 {
     cliente.BaseAddress = new Uri(apiBaseUrl);
 }).AddHttpMessageHandler<TokenAuthHandler>();
+
+// Ícones técnicos e OCR (ferramenta de cota) da ferramenta de desenho — ver
+// PlantaCanvasEdicaoWeb (Rendering/).
+builder.Services.AddHttpClient<IconeSvgCatalogoWeb>(cliente =>
+{
+    cliente.BaseAddress = new Uri(builder.HostEnvironment.BaseAddress);
+});
+builder.Services.AddScoped<IOcrService, OcrServicoWeb>();
 
 builder.Services.AddTransient<LoginViewModel>();
 builder.Services.AddTransient<ProjetosViewModel>();

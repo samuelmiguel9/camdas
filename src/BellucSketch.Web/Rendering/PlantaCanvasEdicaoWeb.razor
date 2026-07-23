@@ -1,0 +1,1035 @@
+@* Motor de desenho da Web: equivalente ao PlantaCanvasView do Android (src/BellucSketch.Mobile/Rendering),
+   mas capturando ponteiro do navegador (mouse/toque/caneta) em vez de toque nativo do MAUI. É um
+   componente NOVO e próprio (não uma refatoração do PlantaCanvasView) — evita risco de regressão no
+   Android, que já está em produção. Mesma estratégia de undo/redo (histórico de ações + replay sobre
+   um snapshot-base da camada) e o mesmo algoritmo de suavização Bézier do traço livre. *@
+@using BellucSketch.Contracts
+@using BellucSketch.Mobile.Rendering
+@using BellucSketch.Mobile.Services
+@using BellucSketch.Mobile.ViewModels
+@using SkiaSharp
+@using SkiaSharp.Views.Blazor
+@implements IDisposable
+@inject IJSRuntime JS
+
+@* SkiaSharp.Views.Blazor.SKCanvasView (código-fonte oficial conferido pra versão 3.119.4, a instalada
+   aqui) NÃO tem propriedades WidthRequest/HeightRequest — isso só existe na versão MAUI/Android do
+   mesmo nome. No Blazor, "WidthRequest"/"HeightRequest" viram atributos HTML sem significado
+   (capturados só por existir [Parameter(CaptureUnmatchedValues=true)] AdditionalAttributes) — o
+   navegador os ignora. O tamanho real vem do CSS (o componente observa o próprio elemento via
+   ResizeObserver/SizeWatcher e usa o clientWidth/clientHeight resultante como resolução do canvas).
+   Sem um "style width/height" explícito, o canvas cai no tamanho padrão do HTML (300×150),
+   cortando a composição não importa o zoom — bug real, herdado do SKCanvasView de só-visualização
+   em Planta.razor (mesmo engano lá), corrigido nos dois lugares. *@
+<SKCanvasView @ref="_canvasView" id="@WrapperElementId"
+              style="@EstiloCanvas"
+              OnPaintSurface="Desenhar"
+              @onpointerdown="OnPointerDown" @onpointermove="OnPointerMove" @onpointerup="OnPointerUp" @onpointercancel="OnPointerUp"
+              @ondblclick="OnDoubleClick" />
+
+@code {
+    [Parameter] public SKBitmap? ImagemBase { get; set; }
+    [Parameter] public IReadOnlyList<CamadaDto> Camadas { get; set; } = [];
+    [Parameter] public Dictionary<Guid, SKBitmap> ImagensPorCamada { get; set; } = [];
+    [Parameter] public Guid? CamadaAtivaId { get; set; }
+    [Parameter] public double Zoom { get; set; } = 1.0;
+    [Parameter] public FerramentaDesenhoWeb Ferramenta { get; set; } = FerramentaDesenhoWeb.Lapis;
+    [Parameter] public EstiloTracoWeb EstiloLinha { get; set; } = EstiloTracoWeb.Livre;
+    [Parameter] public string CorTraco { get; set; } = "#000000";
+    [Parameter] public float EspessuraTraco { get; set; } = 3f;
+    [Parameter] public bool ModoApagar { get; set; }
+    [Parameter] public (SKPicture Picture, string NomeArquivo)? IconeAtivo { get; set; }
+    [Parameter] public IOcrService? OcrService { get; set; }
+    [Parameter] public string WrapperElementId { get; set; } = $"planta-canvas-edicao-{Guid.NewGuid():N}";
+    [Parameter] public EventCallback OnDesenhoAlterado { get; set; }
+
+    private const float TamanhoFontePadrao = 24f;
+    private const float TamanhoIconePendentePadrao = 64f;
+    private const float TamanhoMinimoSelecaoCota = 10f;
+
+    private abstract record AcaoDesenho;
+    private sealed record AcaoTraco(List<SKPoint> Pontos, string Cor, float Espessura, bool Apagar, EstiloTracoWeb Estilo = EstiloTracoWeb.Livre) : AcaoDesenho;
+    private sealed record AcaoTexto(string Texto, SKPoint Posicao, string Cor, float TamanhoFonte, float RotacaoGraus = 0f) : AcaoDesenho;
+
+    private abstract class ElementoPendente
+    {
+        public SKRect Retangulo;
+        public float RotacaoGraus;
+    }
+
+    private sealed class ElementoTextoPendente : ElementoPendente
+    {
+        public required string Texto;
+        public string Cor = "#000000";
+        public float TamanhoFonte;
+    }
+
+    private sealed class ElementoIconePendente : ElementoPendente
+    {
+        public required SKPicture Picture;
+        public required string NomeArquivo;
+    }
+
+    // --- Elementos já colocados nesta sessão (em memória, não persistido) — permite tocar de novo
+    // num texto/ícone já gravado e pegá-lo de volta pra mover/girar/redimensionar/apagar. Porta do
+    // "segurar ~1s" do Android (PlantaCanvasView) pro equivalente de mouse: duplo-clique (ver
+    // OnDoubleClick) — segurar não tem um bom equivalente sem toque, e ficaria fácil de disparar sem
+    // querer enquanto desenha. Um ícone/texto de uma sessão anterior (carregado só como raster) não
+    // entra aqui — só dá pra pegar de volta o que foi colocado nesta mesma sessão de edição.
+    private sealed record IconeColocado(Guid Id, SKPicture Picture, string NomeArquivo, SKRect Retangulo, float RotacaoGraus);
+    private sealed record TextoColocado(Guid Id, Guid CamadaId, AcaoTexto Acao, SKRect Retangulo);
+
+    private readonly List<IconeColocado> _iconesColocados = [];
+    private readonly List<TextoColocado> _textosColocados = [];
+
+    /// <summary>Guarda o estado original de um ícone/texto PEGO DE VOLTA (via duplo-clique) — se o
+    /// usuário cancelar, regrava exatamente onde estava, em vez de simplesmente apagar o elemento.
+    /// Null quando o elemento pendente é um novo (colocado pela ferramenta), não um resgatado.</summary>
+    private IconeColocado? _iconeOriginalEmEdicao;
+    private TextoColocado? _textoOriginalEmEdicao;
+
+    private SKCanvasView? _canvasView;
+    private readonly List<AcaoDesenho> _historico = [];
+    private readonly Stack<AcaoDesenho> _desfeitas = [];
+    private SKBitmap? _bitmapBaseHistorico;
+    private Guid? _camadaAtivaIdAnterior;
+
+    private AcaoTraco? _tracoEmAndamento;
+    private SKPoint? _linhaRetaInicio;
+    private SKPoint? _linhaRetaAtual;
+    private SKPoint? _selecaoCotaInicio;
+    private SKRect? _selecaoCotaRetangulo;
+    private ElementoPendente? _elementoPendente;
+    private bool _arrastandoElementoPendente;
+    private SKPoint? _ultimoPontoElementoPendente;
+
+    private int LarguraCanvas => (int)Math.Max(1, (ImagemBase?.Width ?? 1) * Zoom);
+    private int AlturaCanvas => (int)Math.Max(1, (ImagemBase?.Height ?? 1) * Zoom);
+
+    // Atributos de componente Razor não aceitam markup+expressão misturados no mesmo valor (ao
+    // contrário de elementos HTML puros) — por isso o "style" precisa vir de uma única expressão.
+    private string EstiloCanvas => $"touch-action:none; width:{LarguraCanvas}px; height:{AlturaCanvas}px;";
+
+    public bool TemAcaoParaDesfazer => _historico.Count > 0;
+    public bool TemAcaoParaRefazer => _desfeitas.Count > 0;
+    public bool TemElementoPendente => _elementoPendente is not null;
+
+    /// <summary>Texto do elemento pendente atual, pra Planta.razor mostrar um campo editável na
+    /// barra de posicionamento — null quando o pendente é um ícone (ou não há nenhum).</summary>
+    public string? TextoElementoPendente => (_elementoPendente as ElementoTextoPendente)?.Texto;
+
+    /// <summary>Atualiza o texto do elemento pendente ao vivo (chamado pelo campo de texto da barra
+    /// de posicionamento em Planta.razor) — mantém o mesmo ponto de ancoragem (canto inferior-
+    /// esquerdo) usado ao confirmar/desenhar, igual ao redimensionamento.</summary>
+    public void DefinirTextoElementoPendente(string novoTexto)
+    {
+        if (_elementoPendente is not ElementoTextoPendente texto)
+            return;
+
+        var ancora = new SKPoint(texto.Retangulo.Left, texto.Retangulo.Bottom);
+        using var fonte = new SKFont(SKTypeface.Default, texto.TamanhoFonte);
+        var largura = Math.Max(20f, fonte.MeasureText(novoTexto));
+        var altura = texto.TamanhoFonte * 1.3f;
+
+        texto.Texto = novoTexto;
+        texto.Retangulo = new SKRect(ancora.X, ancora.Y - altura, ancora.X + largura, ancora.Y);
+        _canvasView?.Invalidate();
+    }
+
+    protected override void OnParametersSet()
+    {
+        if (CamadaAtivaId == _camadaAtivaIdAnterior)
+            return;
+
+        _camadaAtivaIdAnterior = CamadaAtivaId;
+        _historico.Clear();
+        _desfeitas.Clear();
+        _elementoPendente = null;
+        _tracoEmAndamento = null;
+        _linhaRetaInicio = null;
+        _linhaRetaAtual = null;
+        CapturarBaselineHistorico();
+    }
+
+    public void Invalidar() => _canvasView?.Invalidate();
+
+    // --- Undo/redo (mesma estratégia do PlantaCanvasView: snapshot-base + replay do histórico) ---
+
+    private void CapturarBaselineHistorico()
+    {
+        _bitmapBaseHistorico?.Dispose();
+        _bitmapBaseHistorico = null;
+
+        if (CamadaAtivaId is not { } id)
+            return;
+
+        var atual = ObterOuCriarBitmapDaCamada(id);
+        if (PlantaOverlayRenderer.PodeDesenhar(atual))
+            _bitmapBaseHistorico = atual.Copy();
+    }
+
+    public void Desfazer()
+    {
+        if (_historico.Count == 0)
+            return;
+
+        var acao = _historico[^1];
+        _historico.RemoveAt(_historico.Count - 1);
+        _desfeitas.Push(acao);
+        RedesenharDoHistorico();
+    }
+
+    public void Refazer()
+    {
+        if (_desfeitas.Count == 0)
+            return;
+
+        var acao = _desfeitas.Pop();
+        _historico.Add(acao);
+        RedesenharDoHistorico();
+    }
+
+    private void RedesenharDoHistorico()
+    {
+        if (CamadaAtivaId is not { } camadaId)
+            return;
+
+        var bitmap = ObterOuCriarBitmapDaCamada(camadaId);
+        using var canvas = new SKCanvas(bitmap);
+        canvas.Clear(SKColors.Transparent);
+        if (PlantaOverlayRenderer.PodeDesenhar(_bitmapBaseHistorico))
+            canvas.DrawBitmap(_bitmapBaseHistorico, 0, 0);
+        foreach (var acao in _historico)
+            DesenharAcao(canvas, acao);
+
+        NotificarAlteracao();
+    }
+
+    public void LimparCamadaAtiva()
+    {
+        if (CamadaAtivaId is not { } camadaId)
+            return;
+
+        var bitmap = ObterOuCriarBitmapDaCamada(camadaId);
+        using var canvas = new SKCanvas(bitmap);
+        canvas.Clear(SKColors.Transparent);
+        _historico.Clear();
+        _desfeitas.Clear();
+        _bitmapBaseHistorico?.Dispose();
+        _bitmapBaseHistorico = null;
+
+        NotificarAlteracao();
+    }
+
+    private SKBitmap ObterOuCriarBitmapDaCamada(Guid camadaId)
+    {
+        var largura = Math.Max(1, ImagemBase?.Width ?? 1);
+        var altura = Math.Max(1, ImagemBase?.Height ?? 1);
+
+        if (ImagensPorCamada.TryGetValue(camadaId, out var existente) && existente.Width == largura && existente.Height == altura)
+            return existente;
+
+        var novo = new SKBitmap(largura, altura);
+        using (var canvasNovo = new SKCanvas(novo))
+        {
+            canvasNovo.Clear(SKColors.Transparent);
+            if (PlantaOverlayRenderer.PodeDesenhar(existente))
+                canvasNovo.DrawBitmap(existente, new SKRect(0, 0, largura, altura));
+        }
+
+        existente?.Dispose();
+        ImagensPorCamada[camadaId] = novo;
+        return novo;
+    }
+
+    private void NotificarAlteracao()
+    {
+        _canvasView?.Invalidate();
+        if (OnDesenhoAlterado.HasDelegate)
+            _ = OnDesenhoAlterado.InvokeAsync();
+    }
+
+    // --- Captura de ponteiro ---
+
+    private SKPoint ConverterParaNativo(double offsetX, double offsetY)
+    {
+        var x = (float)(offsetX / Zoom);
+        var y = (float)(offsetY / Zoom);
+        if (ImagemBase is { } img)
+        {
+            x = Math.Clamp(x, 0, img.Width);
+            y = Math.Clamp(y, 0, img.Height);
+        }
+        return new SKPoint(x, y);
+    }
+
+    private Task OnPointerDown(Microsoft.AspNetCore.Components.Web.PointerEventArgs e)
+    {
+        if (ImagemBase is null)
+            return Task.CompletedTask;
+
+        // Fire-and-forget: não precisa terminar antes de processar o clique (evita um round-trip de
+        // JS interop bloqueando a resposta ao clique — parte do "delay" reportado ao usar as
+        // ferramentas). setPointerCapture só importa pro pointermove seguinte, que só chega depois.
+        _ = JS.InvokeVoidAsync("camdasInterop.capturarPonteiro", WrapperElementId, e.PointerId);
+        var ponto = ConverterParaNativo(e.OffsetX, e.OffsetY);
+
+        if (_elementoPendente is not null)
+        {
+            _arrastandoElementoPendente = true;
+            _ultimoPontoElementoPendente = ponto;
+            return Task.CompletedTask;
+        }
+
+        if (CamadaAtivaId is null)
+            return Task.CompletedTask;
+
+        switch (Ferramenta)
+        {
+            case FerramentaDesenhoWeb.Lapis when EstiloLinha == EstiloTracoWeb.Livre:
+                _tracoEmAndamento = new AcaoTraco([ponto], CorTraco, EspessuraTraco, ModoApagar, EstiloTracoWeb.Livre);
+                _canvasView?.Invalidate();
+                break;
+            case FerramentaDesenhoWeb.Lapis:
+                _linhaRetaInicio = ponto;
+                _linhaRetaAtual = ponto;
+                _canvasView?.Invalidate();
+                break;
+            case FerramentaDesenhoWeb.Texto:
+                // Antes usava JS "prompt()" (diálogo nativo bloqueante) pra pedir o texto — suspeito
+                // nº1 do bug "a planta some depois de clicar com Texto ativo, só volta recarregando a
+                // página": um diálogo bloqueante interferindo no loop de renderização do SkiaSharp no
+                // WASM. Agora cria o elemento pendente direto com um texto-modelo e edita ao vivo pelo
+                // campo de texto da própria barra de ferramentas (ver TextoElementoPendente/
+                // DefinirTextoElementoPendente) — sem diálogo nenhum.
+                IniciarTextoPendente("Texto", CorTraco, TamanhoFontePadrao, ponto);
+                break;
+            case FerramentaDesenhoWeb.Icone:
+                if (IconeAtivo is { } icone)
+                    IniciarIconePendente(icone.Picture, icone.NomeArquivo, ponto);
+                break;
+            case FerramentaDesenhoWeb.Cota:
+                _selecaoCotaInicio = ponto;
+                _selecaoCotaRetangulo = SKRect.Create(ponto.X, ponto.Y, 0, 0);
+                _canvasView?.Invalidate();
+                break;
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private void OnPointerMove(Microsoft.AspNetCore.Components.Web.PointerEventArgs e)
+    {
+        if (ImagemBase is null)
+            return;
+
+        var ponto = ConverterParaNativo(e.OffsetX, e.OffsetY);
+
+        if (_arrastandoElementoPendente && _elementoPendente is { } pendente && _ultimoPontoElementoPendente is { } ultimo)
+        {
+            var deltaX = ponto.X - ultimo.X;
+            var deltaY = ponto.Y - ultimo.Y;
+            pendente.Retangulo = SKRect.Create(pendente.Retangulo.Left + deltaX, pendente.Retangulo.Top + deltaY, pendente.Retangulo.Width, pendente.Retangulo.Height);
+            _ultimoPontoElementoPendente = ponto;
+            _canvasView?.Invalidate();
+            return;
+        }
+
+        if (_tracoEmAndamento is not null)
+        {
+            _tracoEmAndamento.Pontos.Add(ponto);
+            _canvasView?.Invalidate();
+            return;
+        }
+
+        if (_linhaRetaInicio is not null)
+        {
+            _linhaRetaAtual = ponto;
+            _canvasView?.Invalidate();
+            return;
+        }
+
+        if (_selecaoCotaInicio is { } inicio)
+        {
+            _selecaoCotaRetangulo = SKRect.Create(
+                Math.Min(inicio.X, ponto.X), Math.Min(inicio.Y, ponto.Y),
+                Math.Abs(ponto.X - inicio.X), Math.Abs(ponto.Y - inicio.Y));
+            _canvasView?.Invalidate();
+        }
+    }
+
+    private async Task OnPointerUp(Microsoft.AspNetCore.Components.Web.PointerEventArgs e)
+    {
+        if (_arrastandoElementoPendente)
+        {
+            _arrastandoElementoPendente = false;
+            _ultimoPontoElementoPendente = null;
+            return;
+        }
+
+        if (_tracoEmAndamento is not null)
+        {
+            FinalizarTraco();
+            return;
+        }
+
+        if (_linhaRetaInicio is { } inicio && _linhaRetaAtual is { } fim)
+        {
+            _linhaRetaInicio = null;
+            _linhaRetaAtual = null;
+
+            if (CamadaAtivaId is { } camadaId && (Math.Abs(fim.X - inicio.X) > 0.5f || Math.Abs(fim.Y - inicio.Y) > 0.5f))
+            {
+                var traco = new AcaoTraco([inicio, fim], CorTraco, EspessuraTraco, ModoApagar, EstiloLinha);
+                var bitmap = ObterOuCriarBitmapDaCamada(camadaId);
+                using (var canvas = new SKCanvas(bitmap))
+                    DesenharTraco(canvas, traco);
+                _historico.Add(traco);
+                _desfeitas.Clear();
+                NotificarAlteracao();
+            }
+            else
+            {
+                _canvasView?.Invalidate();
+            }
+            return;
+        }
+
+        if (_selecaoCotaRetangulo is { } retangulo)
+        {
+            _selecaoCotaInicio = null;
+            _selecaoCotaRetangulo = null;
+
+            if (retangulo is { Width: >= TamanhoMinimoSelecaoCota, Height: >= TamanhoMinimoSelecaoCota })
+                await ConcluirSelecaoCotaAsync(retangulo);
+            else
+                _canvasView?.Invalidate();
+        }
+    }
+
+    private void FinalizarTraco()
+    {
+        if (_tracoEmAndamento is not { } traco || CamadaAtivaId is not { } camadaId)
+        {
+            _tracoEmAndamento = null;
+            return;
+        }
+
+        var bitmap = ObterOuCriarBitmapDaCamada(camadaId);
+        using (var canvasBitmap = new SKCanvas(bitmap))
+            DesenharTraco(canvasBitmap, traco);
+
+        _historico.Add(traco);
+        _desfeitas.Clear();
+        _tracoEmAndamento = null;
+        NotificarAlteracao();
+    }
+
+    // --- Texto ---
+
+    private void IniciarTextoPendente(string texto, string cor, float tamanhoFonte, SKPoint posicaoInicial)
+    {
+        using var fonte = new SKFont(SKTypeface.Default, tamanhoFonte);
+        var largura = Math.Max(20f, fonte.MeasureText(texto));
+        var altura = tamanhoFonte * 1.3f;
+
+        _elementoPendente = new ElementoTextoPendente
+        {
+            Texto = texto,
+            Cor = cor,
+            TamanhoFonte = tamanhoFonte,
+            Retangulo = new SKRect(posicaoInicial.X, posicaoInicial.Y - altura, posicaoInicial.X + largura, posicaoInicial.Y),
+        };
+
+        // Avisa a página pai (Planta.razor) IMEDIATAMENTE — sem isto, a barra de girar/redimensionar/
+        // confirmar só aparecia depois de algum outro clique na página pai forçar um re-render dela
+        // (bug reportado: "só aparece se eu clicar em salvar"). Invalidate() sozinho só repinta o
+        // canvas Skia; StateHasChanged do componente PAI é outra árvore, sem ligação automática.
+        NotificarAlteracao();
+    }
+
+    private void AdicionarTexto(string texto, SKPoint posicao, string cor, float tamanhoFonte, float rotacaoGraus)
+    {
+        if (CamadaAtivaId is not { } camadaId)
+            return;
+
+        var acao = new AcaoTexto(texto, posicao, cor, tamanhoFonte, rotacaoGraus);
+        var bitmap = ObterOuCriarBitmapDaCamada(camadaId);
+        using (var canvas = new SKCanvas(bitmap))
+            DesenharAcao(canvas, acao);
+
+        _historico.Add(acao);
+        _desfeitas.Clear();
+        _textosColocados.Add(new TextoColocado(Guid.NewGuid(), camadaId, acao, RetanguloDoTexto(acao)));
+        NotificarAlteracao();
+    }
+
+    private static SKRect RetanguloDoTexto(AcaoTexto acao)
+    {
+        using var fonte = new SKFont(SKTypeface.Default, acao.TamanhoFonte);
+        var largura = Math.Max(20f, fonte.MeasureText(acao.Texto));
+        var altura = acao.TamanhoFonte * 1.3f;
+        return new SKRect(acao.Posicao.X, acao.Posicao.Y - altura, acao.Posicao.X + largura, acao.Posicao.Y);
+    }
+
+    // --- Ícones técnicos (sempre gravados na camada "Ícones", nunca na camada ativa — mesma regra do Android) ---
+
+    private void IniciarIconePendente(SKPicture picture, string nomeArquivo, SKPoint posicaoInicial)
+    {
+        if (ImagemBase is { } img)
+            posicaoInicial = new SKPoint(Math.Clamp(posicaoInicial.X, 0, img.Width), Math.Clamp(posicaoInicial.Y, 0, img.Height));
+
+        var origem = picture.CullRect;
+        var proporcao = origem.Width > 0 ? origem.Height / origem.Width : 1f;
+        var largura = TamanhoIconePendentePadrao;
+        var altura = TamanhoIconePendentePadrao * proporcao;
+
+        _elementoPendente = new ElementoIconePendente
+        {
+            Picture = picture,
+            NomeArquivo = nomeArquivo,
+            Retangulo = SKRect.Create(posicaoInicial.X - largura / 2f, posicaoInicial.Y - altura / 2f, largura, altura),
+        };
+
+        // Mesmo motivo do IniciarTextoPendente: avisa a página pai já, pra barra de posicionamento
+        // aparecer no mesmo clique que solta o ícone, não só depois de "Salvar".
+        NotificarAlteracao();
+    }
+
+    /// <summary>Grava um ícone (novo ou recolocado após cancelar uma edição) direto na camada
+    /// "Ícones" — SEMPRE nela, nunca em CamadaAtivaId (mesma regra do Android). Não entra em
+    /// _historico/_desfeitas de propósito: desfazer/refazer aqui só reconstrói a CAMADA ATIVA
+    /// (RedesenharDoHistorico usa CamadaAtivaId) — colocar o ícone lá faria um desfazer tentar
+    /// repintá-lo na camada errada.</summary>
+    private void GravarIconeNaCamadaIcones(SKPicture picture, SKRect retangulo, float rotacaoGraus)
+    {
+        var camadaIcones = Camadas.FirstOrDefault(c => c.Nome == PlantaViewModel.NomeCamadaIcones);
+        if (camadaIcones is null)
+            return;
+
+        var bitmap = ObterOuCriarBitmapDaCamada(camadaIcones.Id);
+        using var canvas = new SKCanvas(bitmap);
+        var pivo = new SKPoint(retangulo.MidX, retangulo.MidY);
+        canvas.Save();
+        if (rotacaoGraus != 0f)
+            canvas.RotateDegrees(rotacaoGraus, pivo.X, pivo.Y);
+        DesenharIconeNoRetangulo(canvas, picture, retangulo);
+        canvas.Restore();
+    }
+
+    private void AdicionarIcone(ElementoIconePendente icone)
+    {
+        GravarIconeNaCamadaIcones(icone.Picture, icone.Retangulo, icone.RotacaoGraus);
+        _iconesColocados.Add(new IconeColocado(Guid.NewGuid(), icone.Picture, icone.NomeArquivo, icone.Retangulo, icone.RotacaoGraus));
+        NotificarAlteracao();
+    }
+
+    private static void DesenharIconeNoRetangulo(SKCanvas canvas, SKPicture picture, SKRect retangulo)
+    {
+        var origem = picture.CullRect;
+        canvas.Save();
+        canvas.Translate(retangulo.Left, retangulo.Top);
+        if (origem.Width > 0 && origem.Height > 0)
+            canvas.Scale(retangulo.Width / origem.Width, retangulo.Height / origem.Height);
+        canvas.Translate(-origem.Left, -origem.Top);
+        canvas.DrawPicture(picture);
+        canvas.Restore();
+    }
+
+    // --- Elemento pendente (texto/ícone soltos até confirmar — arrastar já move, botões da toolbar giram/redimensionam) ---
+
+    public void ConfirmarElementoPendente()
+    {
+        switch (_elementoPendente)
+        {
+            case ElementoTextoPendente texto:
+                AdicionarTexto(texto.Texto, new SKPoint(texto.Retangulo.Left, texto.Retangulo.Bottom), texto.Cor, texto.TamanhoFonte, texto.RotacaoGraus);
+                break;
+            case ElementoIconePendente icone:
+                AdicionarIcone(icone);
+                break;
+            default:
+                return;
+        }
+
+        // Confirmar grava na posição NOVA — o snapshot da posição antiga (se havia, de um ícone/texto
+        // pego de volta) não serve mais pra nada.
+        _iconeOriginalEmEdicao = null;
+        _textoOriginalEmEdicao = null;
+        _elementoPendente = null;
+        _canvasView?.Invalidate();
+    }
+
+    /// <summary>Descarta o elemento pendente. Se for um novo (colocado pela ferramenta), some sem
+    /// mais nada. Se for um ícone/texto PEGO DE VOLTA (via duplo-clique — ver
+    /// IniciarEdicaoIconeColocado/IniciarEdicaoTextoColocado), regrava exatamente onde/como estava —
+    /// senão "Cancelar" faria o elemento desaparecer da planta de vez.</summary>
+    public void CancelarElementoPendente()
+    {
+        if (_iconeOriginalEmEdicao is { } iconeOriginal)
+        {
+            GravarIconeNaCamadaIcones(iconeOriginal.Picture, iconeOriginal.Retangulo, iconeOriginal.RotacaoGraus);
+            _iconesColocados.Add(iconeOriginal);
+            _iconeOriginalEmEdicao = null;
+        }
+
+        if (_textoOriginalEmEdicao is { } textoOriginal)
+        {
+            var bitmap = ObterOuCriarBitmapDaCamada(textoOriginal.CamadaId);
+            using (var canvas = new SKCanvas(bitmap))
+                DesenharAcao(canvas, textoOriginal.Acao);
+
+            if (textoOriginal.CamadaId == CamadaAtivaId)
+            {
+                _historico.Add(textoOriginal.Acao);
+                _desfeitas.Clear();
+            }
+            _textosColocados.Add(textoOriginal);
+            _textoOriginalEmEdicao = null;
+        }
+
+        _elementoPendente = null;
+        NotificarAlteracao();
+    }
+
+    public void RotacionarElementoPendente()
+    {
+        if (_elementoPendente is not { } pendente)
+            return;
+
+        pendente.RotacaoGraus = (pendente.RotacaoGraus + 90f) % 360f;
+        _canvasView?.Invalidate();
+    }
+
+    public void RedimensionarElementoPendente(float deltaPontos)
+    {
+        switch (_elementoPendente)
+        {
+            case ElementoTextoPendente texto:
+                texto.TamanhoFonte = Math.Clamp(texto.TamanhoFonte + deltaPontos, 8f, 200f);
+                using (var fonte = new SKFont(SKTypeface.Default, texto.TamanhoFonte))
+                {
+                    var pivo = new SKPoint(texto.Retangulo.Left, texto.Retangulo.Bottom);
+                    var largura = Math.Max(20f, fonte.MeasureText(texto.Texto));
+                    var altura = texto.TamanhoFonte * 1.3f;
+                    texto.Retangulo = new SKRect(pivo.X, pivo.Y - altura, pivo.X + largura, pivo.Y);
+                }
+                break;
+            case ElementoIconePendente icone:
+                var fator = deltaPontos >= 0 ? 1.1f : 1f / 1.1f;
+                var centro = new SKPoint(icone.Retangulo.MidX, icone.Retangulo.MidY);
+                var novaLargura = Math.Clamp(icone.Retangulo.Width * fator, 16f, 512f);
+                var novaAltura = Math.Clamp(icone.Retangulo.Height * fator, 16f, 512f);
+                icone.Retangulo = SKRect.Create(centro.X - novaLargura / 2f, centro.Y - novaAltura / 2f, novaLargura, novaAltura);
+                break;
+            default:
+                return;
+        }
+
+        _canvasView?.Invalidate();
+    }
+
+    // --- Pegar de volta um texto/ícone já colocado (duplo-clique) ---
+
+    /// <summary>Testa se um ponto cai dentro de um retângulo rotacionado em torno de um pivô —
+    /// desfaz a rotação (gira o ponto de volta) pra testar contra o retângulo original, sem rotação.
+    /// Mesma conta usada tanto pro ícone (pivô = centro) quanto pro texto (pivô = canto inferior-
+    /// esquerdo, mesmo usado pra desenhar/girar os dois). Porta de ContidoConsiderandoRotacao do
+    /// PlantaCanvasView (Android).</summary>
+    private static bool ContidoConsiderandoRotacao(SKRect retangulo, float rotacaoGraus, SKPoint pivo, SKPoint ponto)
+    {
+        if (rotacaoGraus == 0f)
+            return retangulo.Contains(ponto);
+
+        var anguloRad = -rotacaoGraus * MathF.PI / 180f;
+        var dx = ponto.X - pivo.X;
+        var dy = ponto.Y - pivo.Y;
+        var pontoGirado = new SKPoint(
+            pivo.X + dx * MathF.Cos(anguloRad) - dy * MathF.Sin(anguloRad),
+            pivo.Y + dx * MathF.Sin(anguloRad) + dy * MathF.Cos(anguloRad));
+
+        return retangulo.Contains(pontoGirado);
+    }
+
+    private static bool IconeContemPonto(IconeColocado icone, SKPoint ponto) =>
+        ContidoConsiderandoRotacao(icone.Retangulo, icone.RotacaoGraus, new SKPoint(icone.Retangulo.MidX, icone.Retangulo.MidY), ponto);
+
+    private static bool TextoContemPonto(TextoColocado texto, SKPoint ponto) =>
+        ContidoConsiderandoRotacao(texto.Retangulo, texto.Acao.RotacaoGraus, new SKPoint(texto.Retangulo.Left, texto.Retangulo.Bottom), ponto);
+
+    /// <summary>Duplo-clique em qualquer lugar do canvas (não precisa da ferramenta Lápis/Texto/Ícone
+    /// ativa) — equivalente de mouse do "segurar ~1s" do Android (PlantaCanvasView), que não tem um
+    /// bom análogo sem toque. Ícone tem prioridade sobre texto no raro caso de sobreposição.</summary>
+    private void OnDoubleClick(Microsoft.AspNetCore.Components.Web.MouseEventArgs e)
+    {
+        if (ImagemBase is null || _elementoPendente is not null)
+            return;
+
+        var ponto = ConverterParaNativo(e.OffsetX, e.OffsetY);
+
+        var icone = _iconesColocados.LastOrDefault(i => IconeContemPonto(i, ponto));
+        if (icone is not null)
+        {
+            IniciarEdicaoIconeColocado(icone);
+            return;
+        }
+
+        var texto = _textosColocados.LastOrDefault(t => TextoContemPonto(t, ponto));
+        if (texto is not null)
+            IniciarEdicaoTextoColocado(texto);
+    }
+
+    /// <summary>Apaga só a área do retângulo de um ícone colocado (transparente, respeitando a
+    /// rotação) — o retângulo alvo já vai ficar coberto pelo preview do elemento pendente. De
+    /// propósito NÃO reconstrói o bitmap inteiro da camada: um ícone de uma sessão anterior (raster
+    /// puro, sem entrada em _iconesColocados) ficaria de fora e seria apagado sem querer.</summary>
+    private void ApagarIconeDoBitmap(IconeColocado icone)
+    {
+        var camadaIcones = Camadas.FirstOrDefault(c => c.Nome == PlantaViewModel.NomeCamadaIcones);
+        if (camadaIcones is null || !ImagensPorCamada.TryGetValue(camadaIcones.Id, out var bitmap))
+            return;
+
+        using var canvas = new SKCanvas(bitmap);
+        using var paintApagar = new SKPaint { BlendMode = SKBlendMode.Clear };
+
+        var pivo = new SKPoint(icone.Retangulo.MidX, icone.Retangulo.MidY);
+        canvas.Save();
+        if (icone.RotacaoGraus != 0f)
+            canvas.RotateDegrees(icone.RotacaoGraus, pivo.X, pivo.Y);
+        canvas.DrawRect(SKRect.Inflate(icone.Retangulo, 2f, 2f), paintApagar);
+        canvas.Restore();
+    }
+
+    /// <summary>"Pega de volta" um ícone já gravado: apaga o pixel dele da camada e o transforma num
+    /// elemento pendente na posição/rotação atuais, reaproveitando a mesma barra de girar/mover/A-/A+/
+    /// confirmar/cancelar de sempre. Guarda o estado original em _iconeOriginalEmEdicao — se o
+    /// usuário cancelar, o ícone volta pro lugar em vez de sumir.</summary>
+    private void IniciarEdicaoIconeColocado(IconeColocado icone)
+    {
+        _iconesColocados.Remove(icone);
+        ApagarIconeDoBitmap(icone);
+        _iconeOriginalEmEdicao = icone;
+
+        _elementoPendente = new ElementoIconePendente
+        {
+            Picture = icone.Picture,
+            NomeArquivo = icone.NomeArquivo,
+            Retangulo = icone.Retangulo,
+            RotacaoGraus = icone.RotacaoGraus,
+        };
+
+        NotificarAlteracao();
+    }
+
+    /// <summary>Apaga só a área do retângulo de um texto colocado (transparente, respeitando a
+    /// rotação em torno do canto inferior-esquerdo — mesmo pivô do desenho/hit-test).</summary>
+    private void ApagarTextoDoBitmap(TextoColocado texto)
+    {
+        if (!ImagensPorCamada.TryGetValue(texto.CamadaId, out var bitmap))
+            return;
+
+        using var canvas = new SKCanvas(bitmap);
+        using var paintApagar = new SKPaint { BlendMode = SKBlendMode.Clear };
+
+        var pivo = new SKPoint(texto.Retangulo.Left, texto.Retangulo.Bottom);
+        canvas.Save();
+        if (texto.Acao.RotacaoGraus != 0f)
+            canvas.RotateDegrees(texto.Acao.RotacaoGraus, pivo.X, pivo.Y);
+        canvas.DrawRect(SKRect.Inflate(texto.Retangulo, 2f, 2f), paintApagar);
+        canvas.Restore();
+    }
+
+    /// <summary>"Pega de volta" um texto já gravado: tira ele de _historico (só se pertence à camada
+    /// ativa — senão nem está lá, ver comentário em TextoColocado), apaga o pixel dele e o transforma
+    /// num elemento pendente na posição/rotação atuais. Guarda o estado original em
+    /// _textoOriginalEmEdicao — se o usuário cancelar, o texto volta pro lugar em vez de sumir.</summary>
+    private void IniciarEdicaoTextoColocado(TextoColocado texto)
+    {
+        _textosColocados.Remove(texto);
+        if (texto.CamadaId == CamadaAtivaId)
+            _historico.Remove(texto.Acao);
+        ApagarTextoDoBitmap(texto);
+        _textoOriginalEmEdicao = texto;
+
+        _elementoPendente = new ElementoTextoPendente
+        {
+            Texto = texto.Acao.Texto,
+            Cor = texto.Acao.Cor,
+            TamanhoFonte = texto.Acao.TamanhoFonte,
+            Retangulo = texto.Retangulo,
+            RotacaoGraus = texto.Acao.RotacaoGraus,
+        };
+
+        NotificarAlteracao();
+    }
+
+    // --- Ferramenta de cota (seleção + OCR) ---
+
+    private SKBitmap RenderizarComposicaoAtual()
+    {
+        var largura = Math.Max(1, ImagemBase?.Width ?? 1);
+        var altura = Math.Max(1, ImagemBase?.Height ?? 1);
+        var bitmap = new SKBitmap(largura, altura);
+        using var canvas = new SKCanvas(bitmap);
+        PlantaOverlayRenderer.Desenhar(canvas, Camadas, ImagemBase, ImagensPorCamada);
+        return bitmap;
+    }
+
+    /// <summary>OCR local (Tesseract.js/WASM) genuinamente leva alguns segundos — sem um indicador,
+    /// parece que a ferramenta travou ("delay" reportado). A página pai mostra uma mensagem enquanto
+    /// isto está true (ver ProcessandoOcr/OnDesenhoAlterado em Planta.razor).</summary>
+    public bool ProcessandoOcr { get; private set; }
+
+    private async Task ConcluirSelecaoCotaAsync(SKRect retangulo)
+    {
+        if (OcrService is null || ImagemBase is null)
+            return;
+
+        using var composicao = RenderizarComposicaoAtual();
+        var regiao = SKRectI.Round(retangulo);
+        regiao.Intersect(new SKRectI(0, 0, composicao.Width, composicao.Height));
+        if (regiao.Width <= 0 || regiao.Height <= 0)
+        {
+            _canvasView?.Invalidate();
+            return;
+        }
+
+        using var recorte = new SKBitmap(regiao.Width, regiao.Height);
+        using (var canvasRecorte = new SKCanvas(recorte))
+            canvasRecorte.DrawBitmap(composicao, regiao, new SKRect(0, 0, regiao.Width, regiao.Height));
+
+        string textoReconhecido;
+        try
+        {
+            ProcessandoOcr = true;
+            if (OnDesenhoAlterado.HasDelegate)
+                await OnDesenhoAlterado.InvokeAsync();
+            textoReconhecido = await OcrService.ReconhecerAsync(recorte);
+        }
+        catch
+        {
+            textoReconhecido = string.Empty;
+        }
+        finally
+        {
+            ProcessandoOcr = false;
+        }
+
+        // Pré-preenche o modo texto com o resultado do OCR — o usuário confirma/corrige antes de
+        // gravar (mesmo espírito do Android). Diferente do Android, não cobre automaticamente o
+        // número antigo (ver comentário na ferramenta de cota do PlantaCanvasView) — simplificação
+        // deliberada da primeira versão web; o usuário apaga o número antigo com a borracha se quiser.
+        IniciarTextoPendente(textoReconhecido.Trim(), "#FF0000", TamanhoFontePadrao, new SKPoint(retangulo.Left, retangulo.Bottom));
+    }
+
+    // --- Desenho (composição + prévias ao vivo) ---
+
+    private void Desenhar(SKPaintSurfaceEventArgs e)
+    {
+        var canvas = e.Surface.Canvas;
+        canvas.Clear(SKColors.White);
+        canvas.Save();
+
+        // Qualquer exceção não tratada aqui (ex.: um elemento pendente num estado inesperado) deixava
+        // a tela em branco pra sempre — o Clear acima já rodou, mas nada mais era desenhado por cima,
+        // e como o pendente continuava setado, TODO frame seguinte repetia o mesmo erro (só sumia de
+        // vez recarregando a página). Isolar a prévia/elemento pendente com try/catch garante que, na
+        // pior das hipóteses, a composição base (imagem + camadas já salvas) continua aparecendo.
+        try
+        {
+            canvas.Scale((float)Zoom);
+            PlantaOverlayRenderer.Desenhar(canvas, Camadas, ImagemBase, ImagensPorCamada);
+
+            if (_tracoEmAndamento is { } traco)
+                DesenharTracoPreview(canvas, traco);
+
+            if (_linhaRetaInicio is { } inicio && _linhaRetaAtual is { } fim)
+                DesenharLinhaRetaPreview(canvas, inicio, fim, CorTraco, EspessuraTraco, EstiloLinha, ModoApagar);
+
+            if (_selecaoCotaRetangulo is { } retSelecao)
+                DesenharRetanguloSelecaoCota(canvas, retSelecao);
+
+            if (_elementoPendente is { } pendente)
+                DesenharElementoPendente(canvas, pendente);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[PlantaCanvasEdicaoWeb] Erro ao desenhar: {ex}");
+        }
+
+        canvas.Restore();
+    }
+
+    private void DesenharElementoPendente(SKCanvas canvas, ElementoPendente pendente)
+    {
+        switch (pendente)
+        {
+            case ElementoTextoPendente texto: DesenharTextoPendente(canvas, texto); break;
+            case ElementoIconePendente icone: DesenharIconePendente(canvas, icone); break;
+        }
+    }
+
+    private void DesenharTextoPendente(SKCanvas canvas, ElementoTextoPendente texto)
+    {
+        canvas.Save();
+        var pivo = new SKPoint(texto.Retangulo.Left, texto.Retangulo.Bottom);
+        if (texto.RotacaoGraus != 0f)
+            canvas.RotateDegrees(texto.RotacaoGraus, pivo.X, pivo.Y);
+
+        using (var paint = new SKPaint { IsAntialias = true, Color = SKColor.Parse(texto.Cor) })
+        using (var fonte = new SKFont(SKTypeface.Default, texto.TamanhoFonte))
+            canvas.DrawText(texto.Texto, pivo.X, pivo.Y, fonte, paint);
+
+        canvas.Restore();
+        DesenharMolduraPendente(canvas, texto.Retangulo);
+    }
+
+    private void DesenharIconePendente(SKCanvas canvas, ElementoIconePendente icone)
+    {
+        canvas.Save();
+        var pivo = new SKPoint(icone.Retangulo.MidX, icone.Retangulo.MidY);
+        if (icone.RotacaoGraus != 0f)
+            canvas.RotateDegrees(icone.RotacaoGraus, pivo.X, pivo.Y);
+        DesenharIconeNoRetangulo(canvas, icone.Picture, icone.Retangulo);
+        canvas.Restore();
+        DesenharMolduraPendente(canvas, icone.Retangulo);
+    }
+
+    private void DesenharMolduraPendente(SKCanvas canvas, SKRect retangulo)
+    {
+        var escala = Math.Max((float)Zoom, 0.05f);
+        using var borda = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Stroke, StrokeWidth = 2f / escala, Color = SKColors.DeepSkyBlue };
+        canvas.DrawRect(retangulo, borda);
+    }
+
+    private static void DesenharRetanguloSelecaoCota(SKCanvas canvas, SKRect retangulo)
+    {
+        using var preenchimento = new SKPaint { Color = new SKColor(33, 150, 243, 40), Style = SKPaintStyle.Fill };
+        using var borda = new SKPaint
+        {
+            Color = SKColors.DodgerBlue,
+            Style = SKPaintStyle.Stroke,
+            StrokeWidth = 2,
+            PathEffect = SKPathEffect.CreateDash([8f, 6f], 0),
+            IsAntialias = true,
+        };
+        canvas.DrawRect(retangulo, preenchimento);
+        canvas.DrawRect(retangulo, borda);
+    }
+
+    private static void DesenharAcao(SKCanvas canvas, AcaoDesenho acao)
+    {
+        switch (acao)
+        {
+            case AcaoTraco traco:
+                DesenharTraco(canvas, traco);
+                break;
+            case AcaoTexto texto:
+                using (var paint = new SKPaint { IsAntialias = true, Color = SKColor.Parse(texto.Cor) })
+                using (var fonte = new SKFont(SKTypeface.Default, texto.TamanhoFonte))
+                {
+                    if (texto.RotacaoGraus == 0f)
+                    {
+                        canvas.DrawText(texto.Texto, texto.Posicao.X, texto.Posicao.Y, fonte, paint);
+                    }
+                    else
+                    {
+                        canvas.Save();
+                        canvas.RotateDegrees(texto.RotacaoGraus, texto.Posicao.X, texto.Posicao.Y);
+                        canvas.DrawText(texto.Texto, texto.Posicao.X, texto.Posicao.Y, fonte, paint);
+                        canvas.Restore();
+                    }
+                }
+                break;
+        }
+    }
+
+    private static SKPaint CriarPaintTraco(string cor, float espessura, bool apagar, EstiloTracoWeb estilo) => new()
+    {
+        IsAntialias = true,
+        Style = SKPaintStyle.Stroke,
+        StrokeCap = SKStrokeCap.Round,
+        StrokeJoin = SKStrokeJoin.Round,
+        StrokeWidth = espessura,
+        BlendMode = apagar ? SKBlendMode.Clear : SKBlendMode.SrcOver,
+        Color = apagar ? SKColors.Transparent : SKColor.Parse(cor),
+        PathEffect = apagar ? null : CriarEfeitoTraco(estilo, espessura),
+    };
+
+    private static SKPathEffect? CriarEfeitoTraco(EstiloTracoWeb estilo, float espessura) => estilo switch
+    {
+        EstiloTracoWeb.RetaPontilhada => SKPathEffect.CreateDash([Math.Max(0.5f, espessura * 0.1f), espessura * 2.2f], 0),
+        EstiloTracoWeb.RetaTracejada => SKPathEffect.CreateDash([espessura * 3.5f, espessura * 2.2f], 0),
+        _ => null,
+    };
+
+    private static void DesenharTraco(SKCanvas canvas, AcaoTraco traco)
+    {
+        using var paint = CriarPaintTraco(traco.Cor, traco.Espessura, traco.Apagar, traco.Estilo);
+        DesenharCaminhoDoTraco(canvas, traco.Pontos, paint, traco.Espessura);
+    }
+
+    // Prévia ao vivo, desenhada direto na tela (não no bitmap real) — pra borracha usa um traço
+    // indicador branco translúcido, já que Clear numa superfície de tela (sem canal alfa por baixo)
+    // pintaria preto em vez de mostrar transparência (mesmo cuidado do PlantaCanvasView do Android).
+    private static void DesenharTracoPreview(SKCanvas canvas, AcaoTraco traco)
+    {
+        if (!traco.Apagar)
+        {
+            DesenharTraco(canvas, traco);
+            return;
+        }
+
+        using var paint = CriarPaintTraco("#FFFFFF", traco.Espessura, false, EstiloTracoWeb.Livre);
+        paint.Color = paint.Color.WithAlpha(160);
+        DesenharCaminhoDoTraco(canvas, traco.Pontos, paint, traco.Espessura);
+    }
+
+    private static void DesenharLinhaRetaPreview(SKCanvas canvas, SKPoint inicio, SKPoint fim, string cor, float espessura, EstiloTracoWeb estilo, bool apagar)
+    {
+        if (apagar)
+        {
+            using var paintIndicador = CriarPaintTraco("#FFFFFF", espessura, false, EstiloTracoWeb.Livre);
+            paintIndicador.Color = paintIndicador.Color.WithAlpha(160);
+            canvas.DrawLine(inicio, fim, paintIndicador);
+            return;
+        }
+
+        using var paint = CriarPaintTraco(cor, espessura, false, estilo);
+        canvas.DrawLine(inicio, fim, paint);
+    }
+
+    // Curva suave: cada trecho é uma Bézier quadrática entre os pontos médios de dois pontos
+    // capturados consecutivos — mesma técnica do PlantaCanvasView (Android), pra bater visualmente
+    // com o que o app já produz hoje.
+    private static void DesenharCaminhoDoTraco(SKCanvas canvas, List<SKPoint> pontos, SKPaint paint, float espessura)
+    {
+        if (pontos.Count == 1)
+        {
+            canvas.DrawCircle(pontos[0], espessura / 2, paint);
+            return;
+        }
+
+        if (pontos.Count == 2)
+        {
+            canvas.DrawLine(pontos[0], pontos[1], paint);
+            return;
+        }
+
+        using var caminho = new SKPath();
+        caminho.MoveTo(pontos[0]);
+        for (var i = 1; i < pontos.Count - 1; i++)
+        {
+            var pontoMedio = new SKPoint((pontos[i].X + pontos[i + 1].X) / 2f, (pontos[i].Y + pontos[i + 1].Y) / 2f);
+            caminho.QuadTo(pontos[i], pontoMedio);
+        }
+        caminho.LineTo(pontos[^1]);
+        canvas.DrawPath(caminho, paint);
+    }
+
+    public void Dispose()
+    {
+        _bitmapBaseHistorico?.Dispose();
+        _bitmapBaseHistorico = null;
+    }
+}

@@ -7,10 +7,11 @@ Consulte [TASKS.md](TASKS.md) para o backlog de implementação por fases e
 
 ## Status atual
 
-- **Fases 1 a 12 concluídas** — Domain → Application → Infrastructure → Api → Contracts → Mobile,
+- **Fases 1 a 13 concluídas** — Domain → Application → Infrastructure → Api → Contracts → Mobile,
   hardening, deploy na nuvem (Render + Supabase), upgrade para SkiaSharp 3.x, pan/zoom por gesto +
-  ferramenta de ícones técnicos, fluxo de edição colaborativa (Web solicita, Android aprova),
-  ferramenta de seleção de cota com OCR (Google ML Kit) e o rebranding para **BellucSketch**. Ver
+  ferramenta de ícones técnicos, ferramenta de seleção de cota com OCR (Google ML Kit no Android,
+  Tesseract.js na Web), o rebranding para **BellucSketch** e a ferramenta de desenho completa na Web
+  (lápis, borracha, texto, ícones, cota, undo/redo — sem aprovação, ver RELATORIO.md Fase 13). Ver
   [RELATORIO.md](RELATORIO.md) para o detalhe fase a fase e [TASKS.md](TASKS.md) para o checklist.
 - **Produção**: a Api roda publicada no Render (HTTPS automático), com banco e armazenamento de
   arquivos no Supabase — ver [GUIA_DEPLOY_RENDER.md](GUIA_DEPLOY_RENDER.md). O app Android/Web
@@ -20,6 +21,10 @@ Consulte [TASKS.md](TASKS.md) para o backlog de implementação por fases e
   referencia uma propriedade renomeada (`CamadaSelecionadaParaEdicao` → `CamadaEmEdicaoId`) e quebra
   `dotnet test BellucSketch.sln` (a solução inteira) — ver RELATORIO.md, Fase 10. Os projetos
   individuais compilam e os demais testes passam isoladamente.
+- **Pendência conhecida (Fase 13)**: a ferramenta de desenho da Web não foi testada num navegador de
+  verdade (este ambiente de desenvolvimento não tinha ferramenta de automação de navegador disponível)
+  — testada apenas via build + roundtrip da API. Recomenda-se um teste manual antes de considerar
+  validada de ponta a ponta.
 
 ## Pré-requisitos
 
@@ -46,7 +51,7 @@ src/BellucSketch.Infrastructure/         # BellucSketchDbContext + mapeamentos E
 src/BellucSketch.Api/                    # ASP.NET Core Web API — controllers, JWT, middleware de erros, Program.cs
 src/BellucSketch.Mobile.Core/            # ViewModels, cliente HTTP e renderer SkiaSharp — testáveis sem Android (net8.0)
 src/BellucSketch.Mobile/                 # App .NET MAUI Android (net9.0-android, "mestre") — Views (XAML), MauiProgram.cs, Platforms/
-src/BellucSketch.Web/                    # Visualizador Blazor WebAssembly — reaproveita BellucSketch.Mobile.Core; pode propor edições de camada (aprovação fica com o Android, ver RELATORIO.md Fase 8.2)
+src/BellucSketch.Web/                    # App Blazor WebAssembly — reaproveita BellucSketch.Mobile.Core; desenha por cima da planta (motor próprio, ver RELATORIO.md Fase 13) sem aprovação
 tests/BellucSketch.Domain.Tests/         # Testes unitários de domínio (xUnit + FluentAssertions)
 tests/BellucSketch.Application.Tests/    # Testes de casos de uso (xUnit + FluentAssertions + NSubstitute)
 tests/BellucSketch.Infrastructure.Tests/ # Smoke tests (EF Core InMemory) + testes de repositório (Sqlite)
@@ -89,14 +94,17 @@ novo build) se quiser apontar para uma Api sua — local (`http://10.0.2.2:5000/
 máquina na rede Wi-Fi num celular físico) ou publicada em outro lugar (ver
 [GUIA_DEPLOY_INTRANET.md](GUIA_DEPLOY_INTRANET.md)).
 
-## Rodando o visualizador web (BellucSketch.Web)
+## Rodando o app web (BellucSketch.Web)
 
 Além do APK, existe um front-end Blazor WebAssembly (`src/BellucSketch.Web`) que reaproveita o mesmo
-`ApiClient`, os mesmos ViewModels e o mesmo `PlantaOverlayRenderer` do `BellucSketch.Mobile.Core` — mostra
-a planta com as camadas visíveis sobrepostas e permite propor mudanças em camada (visibilidade,
-opacidade, bloqueio, ordem e exclusão), mas não desenha/edita o traço em si pelo navegador. Excluir
-camada pela Web fica pendente de aprovação por um técnico no app Android (o "mestre") — ver
-RELATORIO.md, Fase 8.2. É útil pra ver o resultado no PC sem precisar instalar o app Android.
+`ApiClient`, os mesmos ViewModels e o mesmo `PlantaOverlayRenderer` do `BellucSketch.Mobile.Core` —
+mostra a planta com as camadas visíveis sobrepostas e permite desenhar por cima (lápis com estilos de
+linha, borracha, texto, ícones técnicos e a ferramenta de cota com OCR via Tesseract.js, undo/redo),
+além de mexer em metadado de camada (visibilidade, opacidade, bloqueio, ordem e exclusão). Diferente
+do que era até a Fase 12, a Web hoje aplica toda edição direto, sem pedir aprovação de um técnico no
+Android — ver RELATORIO.md, Fase 13. É útil pra desenhar/ver o resultado no PC sem precisar instalar o
+app Android; o app Android continua com ferramentas que a Web não tem (ícones/textos já colocados
+podem ser "pegos de volta" pra reeditar, cobertura automática do número antigo na ferramenta de cota).
 
 Requer o workload `wasm-tools` (uma vez só, por máquina):
 

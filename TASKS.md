@@ -395,6 +395,60 @@ Legenda de status: `[ ]` pendente · `[~]` em andamento · `[x]` concluído
       (`-f net9.0-android -c Release`) limpos, exceto a pendência já conhecida da Fase 10
       (`PlantaViewModelTests.cs`); instalado e testado num Samsung Galaxy Tab A físico
 
+## Fase 13 — Ferramenta de desenho na Web (BellucSketch.Web deixa de ser só visualizador) — **CONCLUÍDA**
+- [x] Removido o fluxo de aprovação da Web (`PlataformaEdicaoWeb` apagado, registrado
+      `PlataformaEdicaoDireta` — a mesma classe já usada pelo Android): toda edição na Web (inclusive
+      excluir camada) aplica direto, sem pedir responsável/motivo. O backend (`EdicaoPendenteCamada`,
+      migrations, `EdicoesPendentesController`, `RevisaoEdicoesPage` no Android) não foi removido —
+      fica dormente, decisão de limpeza maior deixada de fora deste escopo
+- [x] Ícones técnicos movidos de `src/BellucSketch.Mobile/Resources/Raw/Icones` para
+      `assets/icones-tecnicos` (raiz do repo) — fonte única compartilhada por Android e Web, sem
+      duplicar bytes versionados
+- [x] `PlantaCanvasEdicaoWeb` (`src/BellucSketch.Web/Rendering/`) — motor de desenho novo e próprio da
+      Web (não uma refatoração do `PlantaCanvasView` do Android, pra não arriscar regressão no app já
+      publicado), capturando ponteiro do navegador (`@onpointerdown/move/up`) em vez de touch nativo
+      do MAUI: traço livre com suavização Bézier, borracha, estilos de linha (reta contínua/
+      pontilhada/tracejada), texto, ícones técnicos e undo/redo (histórico de ações + replay sobre
+      snapshot-base da camada, mesma estratégia do Android)
+- [x] Ferramenta de cota com OCR na Web via **Tesseract.js** vendorizado (sem CDN,
+      `wwwroot/lib/tesseract`) — equivalente ao Google ML Kit do Android, atrás de uma interface nova
+      compartilhada `IOcrService` (`Mobile.Core/Services`), implementada por `OcrTextoService`
+      (Android, sem mudar comportamento) e por `OcrServicoWeb` (Web, novo)
+- [x] Simplificações deliberadas frente ao Android (cortes de escopo, não bugs): a Web não cobre
+      automaticamente o número antigo detectado pelo OCR (o Android usa detecção de cor de
+      fundo/máscara pixel-a-pixel — ver Fase 11); não há "segurar pra pegar de volta" um ícone/texto
+      já confirmado pra reeditar; a tela cheia continua só de visualização (editar fica só no painel
+      normal)
+- [x] Bug encontrado e corrigido durante o teste manual: ícones registrados via
+      `<Content Include="..." LinkBase="wwwroot\icones">` apareciam no manifesto de static web assets
+      mas voltavam 404 no servidor de desenvolvimento (`dotnet run`) — o manifesto de dev assume que
+      todo asset raiz mora fisicamente dentro do `wwwroot` do próprio projeto. Corrigido copiando de
+      fato os SVGs pra `wwwroot/icones` num target de build (`CopiarIconesTecnicosCompartilhados`,
+      `BellucSketch.Web.csproj`) — pasta gerada, no `.gitignore`, fonte real continua em
+      `assets/icones-tecnicos`
+- [x] **Bug real encontrado ao testar no navegador (reportado pelo usuário) e corrigido: planta
+      aparecia cortada/pequena em qualquer zoom.** Causa raiz: `SkiaSharp.Views.Blazor.SKCanvasView`
+      **não tem** propriedades `WidthRequest`/`HeightRequest` (isso só existe na versão MAUI/Android
+      do mesmo nome) — confirmado lendo o código-fonte oficial da versão instalada (3.119.4) direto
+      do repositório do SkiaSharp. Usá-las (como o código já fazia, inclusive no SKCanvasView de
+      só-visualização — bug pré-existente, não introduzido nesta fase) vira um atributo HTML sem
+      efeito nenhum (só é "aceito" por existir um `[Parameter(CaptureUnmatchedValues=true)]
+      AdditionalAttributes` que absorve qualquer atributo desconhecido); o tamanho real do canvas
+      vem do **CSS** (`style="width;height"`), observado via `ResizeObserver`. Sem isso, o canvas
+      sempre caía no tamanho padrão do HTML (300×150), cortando a composição e ignorando o zoom por
+      completo. Corrigido nos três `SKCanvasView` da Web (visualização normal, tela cheia e o novo
+      `PlantaCanvasEdicaoWeb`), trocando `WidthRequest`/`HeightRequest` por `style="width:...px;
+      height:...px;"` de verdade
+- [x] Verificado: `dotnet build` de `BellucSketch.Web` e de `BellucSketch.Mobile` (`-f net9.0-android`)
+      limpos; roundtrip completo de upload/download de imagem de camada via API local (mesmo endpoint
+      `PUT`/`GET .../camadas/{id}/imagem` que o novo motor usa) validado por `curl`; assets estáticos
+      novos (ícones, Tesseract.js, dados de treinamento) servidos com 200 pelo dev server
+- [ ] **Sem teste de navegador de verdade automatizado** — este ambiente não tem `chromium-cli`/Node+Playwright
+      disponível, então a interação real (arrastar o mouse pra desenhar, undo/redo clicado, texto/
+      ícone posicionado e confirmado, OCR rodando de fato no navegador) não foi exercitada
+      automaticamente; precisa de verificação manual num navegador antes de considerar esta fase
+      validada de ponta a ponta
+
 ---
 
 ## Backlog futuro (fora do MVP, não priorizado)

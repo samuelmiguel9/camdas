@@ -12,11 +12,28 @@
     <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="8.0.28" PrivateAssets="all" />
     <PackageReference Include="SkiaSharp.Views.Blazor" Version="3.119.4" />
     <PackageReference Include="Microsoft.Extensions.Http" Version="8.0.1" />
+    <!-- Renderiza os SVGs da ferramenta de ícones técnicos (mesma lib usada no Mobile). -->
+    <PackageReference Include="Svg.Skia" Version="3.0.4" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\BellucSketch.Mobile.Core\BellucSketch.Mobile.Core.csproj" />
     <ProjectReference Include="..\BellucSketch.Contracts\BellucSketch.Contracts.csproj" />
   </ItemGroup>
+
+  <!-- Ícones técnicos: compartilhados com BellucSketch.Mobile (fonte única em assets\icones-tecnicos
+       na raiz do repo — ver BellucSketch.Mobile.csproj). Um `Content Include` com LinkBase aqui
+       registrava o asset estático corretamente para publish, mas o manifesto de dev (`dotnet run`)
+       assume que todo asset com ContentRootIndex 0 mora fisicamente dentro do wwwroot do PRÓPRIO
+       projeto — arquivos fora da árvore do projeto ficavam 404 no servidor de desenvolvimento mesmo
+       aparecendo no manifesto (bug encontrado testando a ferramenta de ícones). Copiar de fato pra
+       wwwroot/icones antes do build resolve nos dois modos; a pasta gerada não é o "original" (esse
+       continua em assets/icones-tecnicos) então fica no .gitignore. -->
+  <Target Name="CopiarIconesTecnicosCompartilhados" BeforeTargets="BeforeBuild">
+    <ItemGroup>
+      <IconesTecnicosCompartilhados Include="..\..\assets\icones-tecnicos\*.svg" />
+    </ItemGroup>
+    <Copy SourceFiles="@(IconesTecnicosCompartilhados)" DestinationFolder="wwwroot\icones" SkipUnchangedFiles="true" />
+  </Target>
 
 </Project>

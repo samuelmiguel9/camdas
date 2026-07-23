@@ -7,8 +7,8 @@ partir do código-fonte, veja [README.md](README.md), seção "Rodando o app And
 
 - Celular Android (testado num Samsung Galaxy A15 e num Galaxy Tab A, Android recente — funciona a
   partir da API 23).
-- O arquivo `.apk` mais recente (build Release já assinado, nome real
-  `com.companyname.camdas.mobile-Signed.apk`, gerado por quem administra o projeto).
+- O arquivo `BellucSketch.apk` mais recente (build Release já assinado) — disponível nos
+  [Releases do GitHub](https://github.com/samuelmiguel9/camdas/releases).
 - **Internet** (Wi-Fi ou dados móveis) — o app se conecta à Api publicada na nuvem (Render), não
   precisa mais estar na mesma rede de nenhum servidor específico.
 

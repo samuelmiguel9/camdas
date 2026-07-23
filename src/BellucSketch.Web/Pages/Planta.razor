@@ -1,9 +1,15 @@
 @page "/plantas/{PlantaId:guid}"
 @using BellucSketch.Mobile.Rendering
+@using BellucSketch.Mobile.Services
 @using BellucSketch.Mobile.ViewModels
+@using BellucSketch.Web.Rendering
+@using BellucSketch.Web.Services
 @implements IDisposable
 @inject PlantaViewModel ViewModel
 @inject IJSRuntime JS
+@inject IOcrService OcrService
+@inject IconeSvgCatalogoWeb IconeCatalogo
+@inject NavigationManager Navegacao
 @using SkiaSharp
 @using SkiaSharp.Views.Blazor
 
@@ -11,9 +17,35 @@
 
 <h1>@(ViewModel.Planta?.Nome ?? "Carregando...")</h1>
 
+@if (ViewModel.Planta is not null)
+{
+    <!-- Resumo de auditoria (quem criou/modificou por último e quando) — pedido do usuário: hoje só
+         Android mostrava a data de criação, isolada, sem autor nem última modificação. Formatação
+         compartilhada com o Android via PlantaViewModel.ResumoAuditoria (Mobile.Core), montada a
+         partir do que ObterPlantaQueryHandler já resolve (histórico de auditoria existente). -->
+    <p class="planta-auditoria">@ViewModel.ResumoAuditoria</p>
+}
+
 @if (ViewModel.MensagemErro is not null)
 {
     <p class="text-danger">@ViewModel.MensagemErro</p>
+}
+
+@if (ViewModel.Planta is not null)
+{
+    <!-- Barra de ações da planta: aba Visualização/Edição (era só um "entrar" implícito ao clicar no
+         lápis de uma camada, sem nenhum ponto único e óbvio pra alternar) + Baixar/Excluir, que antes
+         só existiam espalhados (Excluir só na lista de plantas do projeto; Baixar não existia). -->
+    <div class="planta-acoes-barra">
+        <div class="planta-abas">
+            <button class="@(!ViewModel.ModoEdicao ? "aba-ativa" : "")" @onclick="AtivarVisualizacaoAsync">👁 Visualização</button>
+            <button class="@(ViewModel.ModoEdicao ? "aba-ativa" : "")" @onclick="AtivarEdicaoAsync">✏️ Edição</button>
+        </div>
+        <div class="planta-acoes">
+            <button @onclick="BaixarImagemAsync" title="Baixar a planta com todas as camadas visíveis, como PNG">⬇ Baixar</button>
+            <button class="planta-acao-excluir" @onclick="ExcluirPlantaAsync" title="Excluir esta planta">🗑 Excluir planta</button>
+        </div>
+    </div>
 }
 
 <div class="planta-layout">
@@ -31,14 +63,114 @@
                 <button @onclick="AbrirTelaCheia" title="Abrir em tela cheia">⛶ Ampliar</button>
             </div>
 
+            @if (ViewModel.ModoEdicao)
+            {
+                <div class="planta-edicao-toolbar">
+                    <div class="edicao-grupo">
+                        <button class="@FerramentaClasse(FerramentaDesenhoWeb.Lapis)" @onclick="() => _ferramenta = FerramentaDesenhoWeb.Lapis">✏️ Lápis</button>
+                        <button class="@FerramentaClasse(FerramentaDesenhoWeb.Texto)" @onclick="() => _ferramenta = FerramentaDesenhoWeb.Texto">🔤 Texto</button>
+                        <button class="@FerramentaClasse(FerramentaDesenhoWeb.Icone)" @onclick="AlternarMenuIcones">🧩 Ícones</button>
+                        <button class="@FerramentaClasse(FerramentaDesenhoWeb.Cota)" @onclick="() => _ferramenta = FerramentaDesenhoWeb.Cota">🔍 Cota</button>
+                    </div>
+
+                    @if (_canvasEdicao is { ProcessandoOcr: true })
+                    {
+                        <!-- OCR local (Tesseract.js/WASM) leva alguns segundos de verdade — sem isto
+                             parecia que a ferramenta tinha travado (delay reportado). -->
+                        <span class="edicao-status-ocr">🔎 Reconhecendo texto...</span>
+                    }
+
+                    @if (_ferramenta == FerramentaDesenhoWeb.Lapis)
+                    {
+                        <div class="edicao-grupo">
+                            <select @bind="_estiloLinha">
+                                <option value="@EstiloTracoWeb.Livre">Livre</option>
+                                <option value="@EstiloTracoWeb.RetaContinua">Reta contínua</option>
+                                <option value="@EstiloTracoWeb.RetaPontilhada">Reta pontilhada</option>
+                                <option value="@EstiloTracoWeb.RetaTracejada">Reta tracejada</option>
+                            </select>
+                            <button class="@(ViewModel.ModoApagar ? "ativo" : "")" @onclick="() => ViewModel.ModoApagar = !ViewModel.ModoApagar" title="Borracha">🧽</button>
+                            @if (ViewModel.PermiteEscolherCor)
+                            {
+                                <input type="color" @bind="ViewModel.CorTraco" title="Cor" />
+                            }
+                            <input type="range" min="1" max="@ViewModel.EspessuraMaxima" step="1" value="@ViewModel.EspessuraTraco.ToString(System.Globalization.CultureInfo.InvariantCulture)"
+                                   @oninput="e => ViewModel.EspessuraTraco = float.Parse((string)e.Value!, System.Globalization.CultureInfo.InvariantCulture)" title="Espessura" />
+                        </div>
+                    }
+
+                    @if (_mostrarMenuIcones)
+                    {
+                        <div class="edicao-grupo edicao-menu-icones">
+                            @foreach (var (nomeArquivo, titulo) in IconeSvgCatalogoWeb.Icones)
+                            {
+                                <button title="@titulo" @onclick="() => SelecionarIconeAsync(nomeArquivo)">@titulo</button>
+                            }
+                        </div>
+                    }
+
+                    <div class="edicao-grupo">
+                        <button disabled="@(_canvasEdicao is not { TemAcaoParaDesfazer: true })" @onclick="() => _canvasEdicao?.Desfazer()" title="Desfazer">↶</button>
+                        <button disabled="@(_canvasEdicao is not { TemAcaoParaRefazer: true })" @onclick="() => _canvasEdicao?.Refazer()" title="Refazer">↷</button>
+                        <button @onclick="LimparCamadaAtivaAsync" title="Limpar camada">🗑 Limpar</button>
+                    </div>
+
+                    @if (_canvasEdicao is { TemElementoPendente: true })
+                    {
+                        <div class="edicao-grupo">
+                            @if (_canvasEdicao.TextoElementoPendente is not null)
+                            {
+                                <input class="edicao-texto-pendente" type="text" autofocus
+                                       value="@_canvasEdicao.TextoElementoPendente"
+                                       @oninput="e => _canvasEdicao?.DefinirTextoElementoPendente((string?)e.Value ?? string.Empty)"
+                                       placeholder="Texto..." />
+                            }
+                            <button @onclick="() => _canvasEdicao?.RotacionarElementoPendente()" title="Girar">↻</button>
+                            <button @onclick="() => _canvasEdicao?.RedimensionarElementoPendente(-4f)" title="Menor">A−</button>
+                            <button @onclick="() => _canvasEdicao?.RedimensionarElementoPendente(4f)" title="Maior">A+</button>
+                            <button @onclick="() => _canvasEdicao?.ConfirmarElementoPendente()" title="Confirmar">✓ Confirmar</button>
+                            <button @onclick="() => _canvasEdicao?.CancelarElementoPendente()" title="Cancelar">✕ Cancelar</button>
+                        </div>
+                    }
+
+                    <div class="edicao-grupo">
+                        <button class="btn-salvar" @onclick="SalvarCamadaAtivaAsync">💾 Salvar</button>
+                        <button @onclick="SairDaEdicaoAsync">Sair da edição</button>
+                    </div>
+                </div>
+            }
+
             <!-- Wrapper com scroll: quando o zoom deixa a planta maior que a área visível, dá pra
                  percorrer com a barra de rolagem em vez de ficar cortada sem forma de ver o resto
                  (bug reportado: "não consigo visualizar a planta inteira"). -->
             <div class="planta-canvas-scroll" id="planta-canvas-wrapper">
-                <SKCanvasView @ref="_canvasView"
-                              WidthRequest="@((int)(ViewModel.ImagemBase.Width * _zoom))"
-                              HeightRequest="@((int)(ViewModel.ImagemBase.Height * _zoom))"
-                              OnPaintSurface="Desenhar" />
+                @if (ViewModel.ModoEdicao)
+                {
+                    <PlantaCanvasEdicaoWeb @ref="_canvasEdicao"
+                                           ImagemBase="ViewModel.ImagemBase"
+                                           Camadas="ViewModel.Camadas"
+                                           ImagensPorCamada="ViewModel.ImagensPorCamada"
+                                           CamadaAtivaId="ViewModel.CamadaEmEdicaoId"
+                                           Zoom="_zoom"
+                                           Ferramenta="_ferramenta"
+                                           EstiloLinha="_estiloLinha"
+                                           CorTraco="ViewModel.CorTraco"
+                                           EspessuraTraco="ViewModel.EspessuraTraco"
+                                           ModoApagar="ViewModel.ModoApagar"
+                                           IconeAtivo="_iconeAtivo"
+                                           OcrService="OcrService"
+                                           OnDesenhoAlterado="OnDesenhoAlterado" />
+                }
+                else
+                {
+                    <!-- SkiaSharp.Views.Blazor.SKCanvasView não tem WidthRequest/HeightRequest (isso só
+                         existe na versão MAUI) — vira atributo HTML sem efeito, e o canvas caía no
+                         tamanho padrão 300x150, cortando a planta. Tamanho real vem do "style" (CSS),
+                         que o componente observa via ResizeObserver. -->
+                    <SKCanvasView @ref="_canvasView"
+                                  style="@EstiloCanvasNormal"
+                                  OnPaintSurface="Desenhar" />
+                }
             </div>
         }
         else if (ViewModel.EstaCarregando)
@@ -50,19 +182,10 @@
     <div class="planta-camadas-area">
         <h5>Camadas</h5>
 
-        @{ var edicaoDeOrdem = EdicaoPendente(null); }
-        @if (edicaoDeOrdem is not null)
-        {
-            <p class="camada-pendente-aviso" title="@DetalhesEdicaoPendente(edicaoDeOrdem)">
-                ⏳ Reordenação pendente de aprovação no Android
-            </p>
-        }
-
         <div class="camadas-painel">
             @foreach (var camada in ViewModel.Camadas)
             {
-                var edicaoPendente = EdicaoPendente(camada.Id);
-                <div class="camada-linha">
+                <div class="camada-linha @(ViewModel.ModoEdicao && ViewModel.CamadaAtiva?.Id == camada.Id ? "camada-em-edicao" : "")">
                     <!-- Olho: sempre mostra um glifo (aberto/fechado) pra continuar visível e clicável mesmo
                          com a camada oculta — antes sumia por completo e ficava impossível achar o botão
                          pra reexibir a camada (bug reportado). -->
@@ -85,16 +208,14 @@
                             {
                                 <span class="camada-cadeado-inline">🔒</span>
                             }
-                            @if (edicaoPendente is not null)
-                            {
-                                <span class="camada-pendente-inline" title="@DetalhesEdicaoPendente(edicaoPendente)">⏳</span>
-                            }
                         </span>
                         <input class="camada-opacidade" type="range" min="0" max="1" step="0.05"
                                value="@camada.Opacidade.ToString(System.Globalization.CultureInfo.InvariantCulture)"
                                title="Opacidade"
                                @onchange="e => DefinirOpacidadeAsync(camada, e.Value)" />
                     </div>
+
+                    <button class="camada-icone" title="Desenhar nesta camada" disabled="@camada.Bloqueada" @onclick="() => EditarCamadaAsync(camada)">✏️</button>
 
                     <button class="camada-icone camada-cadeado" title="@(camada.Bloqueada ? "Desbloquear" : "Bloquear")" @onclick="() => AlternarBloqueioAsync(camada)">
                         @(camada.Bloqueada ? "🔒" : "🔓")
@@ -116,7 +237,8 @@
 {
     <!-- Visualização ampliada dentro do próprio site (sem navegar pra outra página): ocupa a tela
          toda por cima do conteúdo, com seu próprio "ajustar à tela" calculado pelo tamanho real do
-         viewport (JS interop), em vez da estimativa fixa usada no painel lateral. -->
+         viewport (JS interop), em vez da estimativa fixa usada no painel lateral. A tela cheia
+         permanece só de visualização mesmo durante a edição — desenhar fica no painel normal. -->
     <div class="planta-fullscreen-overlay" @onclick="FecharTelaCheia">
         <div class="planta-fullscreen-conteudo" @onclick:stopPropagation="true">
             <div class="planta-zoom-controles planta-fullscreen-controles">
@@ -131,8 +253,7 @@
             </div>
             <div class="planta-canvas-scroll planta-fullscreen-scroll" id="planta-fullscreen-wrapper">
                 <SKCanvasView @ref="_canvasViewTelaCheia"
-                              WidthRequest="@((int)(ViewModel.ImagemBase.Width * _zoom))"
-                              HeightRequest="@((int)(ViewModel.ImagemBase.Height * _zoom))"
+                              style="@EstiloCanvasNormal"
                               OnPaintSurface="Desenhar" />
             </div>
         </div>
@@ -145,10 +266,25 @@
 
     private SKCanvasView? _canvasView;
     private SKCanvasView? _canvasViewTelaCheia;
+    private PlantaCanvasEdicaoWeb? _canvasEdicao;
     private double _zoom = 1.0;
+    private DotNetObjectReference<Planta>? _dotNetRef;
+
+    // Atributos de componente Razor (SKCanvasView é componente, não elemento HTML puro) não aceitam
+    // markup+expressão misturados no mesmo valor de atributo — "style" precisa vir de uma única
+    // expressão. Ver comentário completo sobre a ausência de WidthRequest/HeightRequest no Blazor.
+    private string EstiloCanvasNormal => ViewModel.ImagemBase is { } imagemBase
+        ? $"width:{(int)(imagemBase.Width * _zoom)}px; height:{(int)(imagemBase.Height * _zoom)}px;"
+        : string.Empty;
+
     private bool _zoomAjustadoNoCarregamento;
     private bool _telaCheia;
     private bool? _ajusteZoomPendentePara;
+
+    private FerramentaDesenhoWeb _ferramenta = FerramentaDesenhoWeb.Lapis;
+    private EstiloTracoWeb _estiloLinha = EstiloTracoWeb.Livre;
+    private bool _mostrarMenuIcones;
+    private (SKPicture Picture, string NomeArquivo)? _iconeAtivo;
 
     /// <summary>Largura aproximada usada só como fallback caso a medição via JS interop falhe
     /// (ex.: elemento ainda não presente no DOM).</summary>
@@ -189,9 +325,25 @@
         if (ViewModel.ImagemBase is not null)
         {
             await JS.InvokeVoidAsync("camdasInterop.habilitarArrastarPan", "planta-canvas-wrapper");
+            await JS.InvokeVoidAsync("camdasInterop.definirModoDesenho", "planta-canvas-wrapper", ViewModel.ModoEdicao);
+            _dotNetRef ??= DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("camdasInterop.habilitarZoomCtrlScroll", "planta-canvas-wrapper", _dotNetRef);
             if (_telaCheia)
+            {
                 await JS.InvokeVoidAsync("camdasInterop.habilitarArrastarPan", "planta-fullscreen-wrapper");
+                await JS.InvokeVoidAsync("camdasInterop.habilitarZoomCtrlScroll", "planta-fullscreen-wrapper", _dotNetRef);
+            }
         }
+    }
+
+    /// <summary>Chamado pelo JS (camdasInterop.habilitarZoomCtrlScroll) a cada "wheel" com Ctrl
+    /// pressionado — equivalente desktop da pinça de zoom (não existe no mouse). deltaY negativo é
+    /// "rodinha pra cima"/afastar os dedos (zoom in); positivo é o contrário.</summary>
+    [JSInvokable]
+    public void OnCtrlScrollZoom(double deltaY)
+    {
+        var multiplicador = deltaY < 0 ? 1.1 : 1.0 / 1.1;
+        AjustarZoom(_zoom * multiplicador);
     }
 
     private void Desenhar(SKPaintSurfaceEventArgs args)
@@ -212,6 +364,7 @@
         {
             _canvasView?.Invalidate();
             _canvasViewTelaCheia?.Invalidate();
+            _canvasEdicao?.Invalidar();
         });
     }
 
@@ -297,11 +450,127 @@
             return;
 
         await ViewModel.RemoverCamadaAsync(camada);
+        _miniaturaCache.Remove(camada.Id);
         _canvasView?.Invalidate();
     }
 
-    /// <summary>Miniatura em xadrez (indica transparência) + traço da camada, mantendo proporção — mesmo espírito visual do painel de camadas do Photoshop.</summary>
+    // --- Barra de ações da planta (aba visualização/edição, baixar, excluir) ---
+
+    /// <summary>Aba "Edição" da barra de ações — entra no modo de desenho sem exigir que o usuário
+    /// primeiro clique no lápis de uma camada específica (reaproveita a última ativa ou a primeira
+    /// desbloqueada, ver EntrarEmModoEdicao). O lápis por camada continua existindo pra TROCAR de
+    /// camada depois de já estar em edição.</summary>
+    private async Task AtivarEdicaoAsync()
+    {
+        ViewModel.EntrarEmModoEdicao();
+        await JS.InvokeVoidAsync("camdasInterop.definirModoDesenho", "planta-canvas-wrapper", true);
+    }
+
+    private Task AtivarVisualizacaoAsync() => SairDaEdicaoAsync();
+
+    /// <summary>Baixa a composição atual (imagem base + todas as camadas visíveis, resolução nativa,
+    /// sem zoom) como PNG — não existia nenhuma forma de exportar a planta como imagem simples pra
+    /// compartilhar fora do app.</summary>
+    private async Task BaixarImagemAsync()
+    {
+        if (ViewModel.ImagemBase is not { } imagemBase)
+            return;
+
+        using var composicao = new SKBitmap(imagemBase.Width, imagemBase.Height);
+        using (var canvas = new SKCanvas(composicao))
+            PlantaOverlayRenderer.Desenhar(canvas, ViewModel.Camadas, ViewModel.ImagemBase, ViewModel.ImagensPorCamada);
+
+        using var imagem = SKImage.FromBitmap(composicao);
+        using var dados = imagem.Encode(SKEncodedImageFormat.Png, 100);
+        var nomeArquivo = $"{ViewModel.Planta?.Nome ?? "planta"}.png";
+        await JS.InvokeVoidAsync("camdasInterop.baixarArquivo", nomeArquivo, Convert.ToBase64String(dados.ToArray()));
+    }
+
+    private async Task ExcluirPlantaAsync()
+    {
+        if (ViewModel.Planta is not { } planta)
+            return;
+
+        var confirmar = await JS.InvokeAsync<bool>("confirm", $"Excluir a planta '{planta.Nome}'? Todas as camadas e o traço delas somem, sem volta.");
+        if (!confirmar)
+            return;
+
+        await ViewModel.ExcluirPlantaAsync();
+        Navegacao.NavigateTo($"projetos/{planta.ProjetoId}/plantas");
+    }
+
+    // --- Edição de traço ---
+
+    private string FerramentaClasse(FerramentaDesenhoWeb ferramenta) => _ferramenta == ferramenta ? "ativo" : "";
+
+    private async Task EditarCamadaAsync(BellucSketch.Contracts.CamadaDto camada)
+    {
+        if (camada.Bloqueada)
+            return;
+
+        ViewModel.EditarCamada(camada);
+        await JS.InvokeVoidAsync("camdasInterop.definirModoDesenho", "planta-canvas-wrapper", true);
+    }
+
+    private async Task SairDaEdicaoAsync()
+    {
+        _canvasEdicao?.CancelarElementoPendente();
+        ViewModel.SairDaEdicao();
+        _mostrarMenuIcones = false;
+        await JS.InvokeVoidAsync("camdasInterop.definirModoDesenho", "planta-canvas-wrapper", false);
+    }
+
+    private async Task SalvarCamadaAtivaAsync() => await ViewModel.SalvarCamadaAtivaAsync();
+
+    private async Task LimparCamadaAtivaAsync()
+    {
+        var confirmar = await JS.InvokeAsync<bool>("confirm", "Limpar o traço desta camada? Sem volta depois de salvar.");
+        if (confirmar)
+            _canvasEdicao?.LimparCamadaAtiva();
+    }
+
+    private void AlternarMenuIcones()
+    {
+        _ferramenta = FerramentaDesenhoWeb.Icone;
+        _mostrarMenuIcones = !_mostrarMenuIcones;
+    }
+
+    private async Task SelecionarIconeAsync(string nomeArquivo)
+    {
+        var picture = await IconeCatalogo.ObterAsync(nomeArquivo);
+        _iconeAtivo = (picture, nomeArquivo);
+        _mostrarMenuIcones = false;
+    }
+
+    private void OnDesenhoAlterado()
+    {
+        // Qual camada mudou não é informado (pode ser a ativa OU a de Ícones) — mais simples e barato
+        // invalidar a miniatura de todas do que tentar adivinhar qual. O ganho real está em NÃO
+        // recalcular em renders que não mudam pixel nenhum (ver comentário em MiniaturaCamada).
+        _miniaturaCache.Clear();
+        StateHasChanged();
+    }
+
+    private readonly Dictionary<Guid, string?> _miniaturaCache = [];
+
+    /// <summary>Miniatura em xadrez (indica transparência) + traço da camada, mantendo proporção —
+    /// mesmo espírito visual do painel de camadas do Photoshop. Cacheada por camada: sem isto, TODA
+    /// miniatura de TODA camada era recalculada (resize + encode PNG + base64) a cada render de
+    /// Planta.razor — inclusive em renders que não mudam pixel nenhum, como mexer no slider de
+    /// espessura/cor ou arrastar o zoom — um custo real por trás do "delay ao usar as ferramentas"
+    /// reportado. O cache só é limpo quando o traço de alguma camada realmente muda (ver
+    /// OnDesenhoAlterado/ExcluirCamadaAsync).</summary>
     private string? MiniaturaCamada(Guid camadaId)
+    {
+        if (_miniaturaCache.TryGetValue(camadaId, out var cacheada))
+            return cacheada;
+
+        var resultado = CalcularMiniaturaCamada(camadaId);
+        _miniaturaCache[camadaId] = resultado;
+        return resultado;
+    }
+
+    private string? CalcularMiniaturaCamada(Guid camadaId)
     {
         if (!ViewModel.ImagensPorCamada.TryGetValue(camadaId, out var bitmap))
             return null;
@@ -319,15 +588,6 @@
         return $"data:image/png;base64,{Convert.ToBase64String(dados.ToArray())}";
     }
 
-    /// <summary>Primeira edição pendente para a camada (ou, com <paramref name="camadaId"/> nulo, a
-    /// reordenação pendente que se aplica à planta inteira) — usada só pra exibir o aviso "⏳",
-    /// aprovação de verdade só acontece no Android.</summary>
-    private BellucSketch.Contracts.EdicaoPendenteDto? EdicaoPendente(Guid? camadaId) =>
-        ViewModel.Planta?.EdicoesPendentes.FirstOrDefault(e => e.CamadaId == camadaId);
-
-    private static string DetalhesEdicaoPendente(BellucSketch.Contracts.EdicaoPendenteDto edicao) =>
-        $"Pendente de aprovação no Android — {edicao.Responsavel}, {edicao.DataSolicitacao:dd/MM/yyyy HH:mm}: {edicao.Motivo}";
-
     private void AoPropriedadeMudar(object? remetente, System.ComponentModel.PropertyChangedEventArgs args)
     {
         InvokeAsync(StateHasChanged);
@@ -335,5 +595,9 @@
             InvokeAsync(() => _canvasView?.Invalidate());
     }
 
-    public void Dispose() => ViewModel.PropertyChanged -= AoPropriedadeMudar;
+    public void Dispose()
+    {
+        ViewModel.PropertyChanged -= AoPropriedadeMudar;
+        _dotNetRef?.Dispose();
+    }
 }

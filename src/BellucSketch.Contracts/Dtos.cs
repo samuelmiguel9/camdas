@@ -31,7 +31,15 @@ public sealed record PlantaDto(
     string CaminhoArquivoOriginal,
     DateTime DataImportacao,
     IReadOnlyList<CamadaDto> Camadas,
-    IReadOnlyList<EdicaoPendenteDto> EdicoesPendentes);
+    IReadOnlyList<EdicaoPendenteDto> EdicoesPendentes,
+    // Resumo de auditoria (criação/última modificação), derivado do HistoricoAlteracao dessa planta —
+    // ver ObterPlantaQueryHandler. Nomes vêm nulos quando o usuário responsável não é mais encontrado
+    // (ex.: removido); "Modificacao" fica igual a "Importacao" quando nada aconteceu depois de criar.
+    Guid? CriadoPorId = null,
+    string? NomeCriador = null,
+    DateTime? UltimaModificacaoEm = null,
+    Guid? UltimaModificacaoPorId = null,
+    string? NomeUltimoModificador = null);
 
 public sealed record UsuarioDto(Guid Id, string Nome, string Email, bool Ativo);
 

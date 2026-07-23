@@ -19,6 +19,9 @@ logs/
 ## Arquivos de plantas importadas/desenhadas (dados de usuário, não código)
 App_Data/
 
+## Ícones técnicos copiados em build-time pra wwwroot (fonte real: assets/icones-tecnicos)
+src/BellucSketch.Web/wwwroot/icones/
+
 ## Editor
 .vscode/
 .idea/
