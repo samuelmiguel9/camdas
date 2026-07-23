@@ -1,28 +1,33 @@
 # BellucSketch — Desenho livre sobre plantas importadas
 
-Consulte [PRD.md](PRD.md) para arquitetura, modelo de dados e stack tecnológica, e
-[TASKS.md](TASKS.md) para o backlog de implementação por fases.
-
-> **Pivot**: o projeto começou como uma ferramenta formal de ratificação de plantas (cotas
-> estruturadas + fluxo de revisão/aprovação por perfil). Isso foi removido por completo — o app
-> hoje é mais simples: o montador cria um projeto, importa uma planta pronta (PDF ou imagem) e
-> desenha livremente por cima (traço raster) em camadas que ele mesmo cria, liga/desliga e
-> reordena por prioridade — tipo Paint. Detalhes em TASKS.md e RELATORIO.md.
+O montador cria um projeto, importa uma planta pronta (PDF ou imagem) e desenha livremente por cima
+(traço raster) em camadas que ele mesmo cria, liga/desliga e reordena por prioridade — tipo Paint.
+Consulte [TASKS.md](TASKS.md) para o backlog de implementação por fases e
+[RELATORIO.md](RELATORIO.md) para o histórico detalhado de cada uma.
 
 ## Status atual
 
-- **Fases 1 a 6 concluídas** (Domain → Application → Infrastructure → Api → Contracts → Mobile),
-  com o fluxo de revisão/aprovação/versionamento e a entidade `Cota` (medida estruturada)
-  completamente removidos — nada na UI usava esse recurso.
-- **Fase 7 concluída**: limpeza de código morto, correções de UI reportadas em teste no aparelho
-  (botão de arrastar, planta cortada na visualização geral, escala da borracha), miniatura da
-  planta na lista do projeto e relatório de atualizações em PDF (botão no canto superior da aba
-  Projetos). Ver [RELATORIO.md](RELATORIO.md) para o detalhe de cada mudança.
+- **Fases 1 a 12 concluídas** — Domain → Application → Infrastructure → Api → Contracts → Mobile,
+  hardening, deploy na nuvem (Render + Supabase), upgrade para SkiaSharp 3.x, pan/zoom por gesto +
+  ferramenta de ícones técnicos, fluxo de edição colaborativa (Web solicita, Android aprova),
+  ferramenta de seleção de cota com OCR (Google ML Kit) e o rebranding para **BellucSketch**. Ver
+  [RELATORIO.md](RELATORIO.md) para o detalhe fase a fase e [TASKS.md](TASKS.md) para o checklist.
+- **Produção**: a Api roda publicada no Render (HTTPS automático), com banco e armazenamento de
+  arquivos no Supabase — ver [GUIA_DEPLOY_RENDER.md](GUIA_DEPLOY_RENDER.md). O app Android/Web
+  aponta pra ela por padrão (endereço fixo, não configurável em runtime); o passo a passo de rodar
+  a Api localmente abaixo é só para **desenvolvimento**.
+- **Pendência conhecida**: `tests/BellucSketch.Mobile.Core.Tests/ViewModels/PlantaViewModelTests.cs`
+  referencia uma propriedade renomeada (`CamadaSelecionadaParaEdicao` → `CamadaEmEdicaoId`) e quebra
+  `dotnet test BellucSketch.sln` (a solução inteira) — ver RELATORIO.md, Fase 10. Os projetos
+  individuais compilam e os demais testes passam isoladamente.
 
 ## Pré-requisitos
 
 - [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0) (`winget install Microsoft.DotNet.SDK.8` no
-  Windows).
+  Windows) — usado por Domain/Application/Infrastructure/Contracts/Api/Mobile.Core/Web.
+- [.NET 9 SDK](https://dotnet.microsoft.com/download/dotnet/9.0) (`winget install Microsoft.DotNet.SDK.9`) —
+  só o app `BellucSketch.Mobile` (`net9.0-android`) precisa dele; ver seção "Rodando o app Android" abaixo
+  para os demais pré-requisitos específicos do Android.
 
 ## Build e testes
 
@@ -39,21 +44,21 @@ src/BellucSketch.Contracts/              # DTOs de request/response compartilhad
 src/BellucSketch.Application/            # Casos de uso (MediatR), portas (Abstractions/), validações (FluentValidation)
 src/BellucSketch.Infrastructure/         # BellucSketchDbContext + mapeamentos EF Core, repositórios, storage, conversão PDF
 src/BellucSketch.Api/                    # ASP.NET Core Web API — controllers, JWT, middleware de erros, Program.cs
-src/BellucSketch.Mobile.Core/            # ViewModels, cliente HTTP, renderer SkiaSharp e geração do relatório PDF — testáveis sem Android (net8.0)
-src/BellucSketch.Mobile/                 # App .NET MAUI Android — Views (XAML), MauiProgram.cs, Platforms/
-src/BellucSketch.Web/                    # Visualizador Blazor WebAssembly (somente leitura) — reaproveita BellucSketch.Mobile.Core
+src/BellucSketch.Mobile.Core/            # ViewModels, cliente HTTP e renderer SkiaSharp — testáveis sem Android (net8.0)
+src/BellucSketch.Mobile/                 # App .NET MAUI Android (net9.0-android, "mestre") — Views (XAML), MauiProgram.cs, Platforms/
+src/BellucSketch.Web/                    # Visualizador Blazor WebAssembly — reaproveita BellucSketch.Mobile.Core; pode propor edições de camada (aprovação fica com o Android, ver RELATORIO.md Fase 8.2)
 tests/BellucSketch.Domain.Tests/         # Testes unitários de domínio (xUnit + FluentAssertions)
 tests/BellucSketch.Application.Tests/    # Testes de casos de uso (xUnit + FluentAssertions + NSubstitute)
 tests/BellucSketch.Infrastructure.Tests/ # Smoke tests (EF Core InMemory) + testes de repositório (Sqlite)
 tests/BellucSketch.Api.Tests/            # Testes de integração ponta a ponta (WebApplicationFactory + Sqlite)
-tests/BellucSketch.Mobile.Core.Tests/    # Testes de ViewModel, do renderer SkiaSharp e do relatório PDF (xUnit + NSubstitute)
+tests/BellucSketch.Mobile.Core.Tests/    # Testes de ViewModel e do renderer SkiaSharp (xUnit + NSubstitute) — ver pendência conhecida em "Status atual"
 ```
 
 Veja [RELATORIO.md](RELATORIO.md) para o histórico de testes, erros e correções de cada fase.
 
 ## Rodando o app Android (BellucSketch.Mobile)
 
-Requer o workload MAUI + Android SDK + JDK instalados (uma vez só, por máquina):
+Requer o workload MAUI (net9.0) + Android SDK + JDK instalados (uma vez só, por máquina):
 
 ```powershell
 dotnet workload install maui-android
@@ -61,33 +66,37 @@ winget install Microsoft.OpenJDK.17
 # Baixe o Android SDK Command-line Tools em https://developer.android.com/studio#command-tools,
 # extraia em <SDK_ROOT>\cmdline-tools\latest\, depois:
 <SDK_ROOT>\cmdline-tools\latest\bin\sdkmanager.bat --sdk_root=<SDK_ROOT> --licenses
-<SDK_ROOT>\cmdline-tools\latest\bin\sdkmanager.bat --sdk_root=<SDK_ROOT> "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+<SDK_ROOT>\cmdline-tools\latest\bin\sdkmanager.bat --sdk_root=<SDK_ROOT> "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 ```
 
 Build de desenvolvimento (Debug, só roda com deploy via cabo/Visual Studio):
 
 ```powershell
-dotnet build src/BellucSketch.Mobile/BellucSketch.Mobile.csproj -f net8.0-android -p:AndroidSdkDirectory=<SDK_ROOT>
+dotnet build src/BellucSketch.Mobile/BellucSketch.Mobile.csproj -f net9.0-android -p:AndroidSdkDirectory=<SDK_ROOT>
 ```
 
 Build para instalar por fora (sideload, `.apk` copiado direto pro aparelho) — **precisa ser
 Release**, senão o app fecha sozinho ao abrir (ver RELATORIO.md, Fase 6):
 
 ```powershell
-dotnet build src/BellucSketch.Mobile/BellucSketch.Mobile.csproj -f net8.0-android -c Release -p:AndroidSdkDirectory=<SDK_ROOT>
+dotnet build src/BellucSketch.Mobile/BellucSketch.Mobile.csproj -f net9.0-android -c Release -p:AndroidSdkDirectory=<SDK_ROOT>
 ```
 
-Antes de instalar num dispositivo/emulador de verdade, ajuste `ConfiguracaoApi.BaseUrl`
-(`src/BellucSketch.Mobile.Core/Services/ConfiguracaoApi.cs`) para o endereço real da Api na intranet — o
-padrão (`http://10.0.2.2:5000/`) só funciona no emulador Android apontando para o `localhost` da
-máquina de desenvolvimento; num celular físico, use o IP da máquina na rede Wi-Fi.
+O app já aponta por padrão para a Api publicada no Render — `ConfiguracaoApi.BaseUrl`
+(`src/BellucSketch.Mobile.Core/Services/ConfiguracaoApi.cs`) é uma constante fixa, não algo que se
+configura em runtime (isso foi removido, ver RELATORIO.md Fase 10). Só edite esse arquivo (e gere um
+novo build) se quiser apontar para uma Api sua — local (`http://10.0.2.2:5000/` no emulador, IP da
+máquina na rede Wi-Fi num celular físico) ou publicada em outro lugar (ver
+[GUIA_DEPLOY_INTRANET.md](GUIA_DEPLOY_INTRANET.md)).
 
 ## Rodando o visualizador web (BellucSketch.Web)
 
 Além do APK, existe um front-end Blazor WebAssembly (`src/BellucSketch.Web`) que reaproveita o mesmo
-`ApiClient`, os mesmos ViewModels e o mesmo `PlantaOverlayRenderer` do `BellucSketch.Mobile.Core` — ele só
-mostra a planta com as camadas visíveis sobrepostas (somente leitura, não desenha/edita traço pelo
-navegador). É útil pra ver o resultado no PC sem precisar instalar o app Android.
+`ApiClient`, os mesmos ViewModels e o mesmo `PlantaOverlayRenderer` do `BellucSketch.Mobile.Core` — mostra
+a planta com as camadas visíveis sobrepostas e permite propor mudanças em camada (visibilidade,
+opacidade, bloqueio, ordem e exclusão), mas não desenha/edita o traço em si pelo navegador. Excluir
+camada pela Web fica pendente de aprovação por um técnico no app Android (o "mestre") — ver
+RELATORIO.md, Fase 8.2. É útil pra ver o resultado no PC sem precisar instalar o app Android.
 
 Requer o workload `wasm-tools` (uma vez só, por máquina):
 

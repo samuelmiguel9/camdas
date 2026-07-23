@@ -1,9 +1,12 @@
 # Guia de deploy: Render (Api) + Supabase (banco + arquivos)
 
-Coloca a `BellucSketch.Api` online, acessível de qualquer rede — resolve o problema de precisar estar na
-mesma Wi-Fi do servidor pra usar o app/celular/tablet. Banco de dados e armazenamento de arquivos
-ficam no Supabase (Postgres gerenciado + Storage compatível com S3); a Api roda no Render. Veja
-`GUIA_DEPLOY_INTRANET.md` se preferir manter tudo dentro da empresa em vez da nuvem.
+**Este é o deploy em produção hoje** — a Api está publicada no Render, com banco de dados e
+armazenamento de arquivos no Supabase, e o app Android/`BellucSketch.Web` já apontam pra lá por padrão
+(`ConfiguracaoApi.BaseUrl`/`ApiBaseUrl`). Este guia serve para: entender como esse deploy foi feito,
+reproduzi-lo (ex.: um ambiente próprio de testes) ou migrar pra um projeto novo de Render/Supabase se
+for preciso um dia. Veja `GUIA_DEPLOY_INTRANET.md` se preferir manter tudo dentro da empresa em vez da
+nuvem — nesse caso, o endereço fixo no app precisa ser trocado no código-fonte (ver nota no fim deste
+guia).
 
 O repositório já tem os arquivos que o Render precisa — `render.yaml` (raiz) e
 `src/BellucSketch.Api/Dockerfile`. As duas partes de cadastro (Supabase e Render) só você consegue fazer,
@@ -55,8 +58,12 @@ são login por navegador.
 5. Salvar as variáveis já dispara um novo deploy automaticamente. Acompanha o log — na primeira
    subida, a Api aplica as migrations sozinha no banco do Supabase (não precisa rodar `dotnet ef`
    manualmente).
-6. Quando concluir, o Render mostra a URL pública, tipo `https://camdas-api.onrender.com`. **Me
-   manda essa URL** que eu atualizo o app Android e o `BellucSketch.Web` pra apontar pra lá.
+6. Quando concluir, o Render mostra a URL pública, tipo `https://camdas-api.onrender.com` — é esse
+   endereço que precisa ir em `ConfiguracaoApi.BaseUrl`
+   (`src/BellucSketch.Mobile.Core/Services/ConfiguracaoApi.cs`) e `ApiBaseUrl`
+   (`src/BellucSketch.Web/wwwroot/appsettings.json`), com um novo build/deploy depois (isso já está
+   feito para o deploy atual, apontando pra `https://camdas-api-gb9z.onrender.com/` — só repita este
+   passo se migrar pra um projeto novo de Render).
 
 ## O que verificar se algo falhar
 
@@ -79,7 +86,10 @@ são login por navegador.
 ## Depois que a Api estiver no ar
 
 Com a Api pública e em HTTPS (o Render já dá certificado automático — resolve, de quebra, o item
-"HTTPS interno" do `REVISAO_SEGURANCA.md`), o app Android **não precisa mais** de estar na mesma
-rede do servidor. Ainda não removi o fluxo de "IP da rede" do app porque, até você confirmar que o
-deploy ficou estável, dá pra ter os dois endereços salvos ao mesmo tempo (ex.: "Render" e "PC
-local") e trocar conforme a necessidade — ver `ResolvedorEnderecoApi`.
+"HTTP sem TLS" do `REVISAO_SEGURANCA.md`), o app Android/Web **não precisa mais** de estar na mesma
+rede do servidor — funciona de qualquer lugar com internet. O antigo fluxo de "IP da rede" (perguntar
+o endereço do servidor na primeira abertura, com vários endereços salvos ao mesmo tempo) foi removido
+por completo depois que esse deploy ficou estável — `ConfiguracaoApi.BaseUrl` hoje é uma constante
+fixa apontando pro Render (ver RELATORIO.md, Fase 10). Pra apontar pra outro servidor (um projeto novo
+de Render, ou uma Api na intranet via `GUIA_DEPLOY_INTRANET.md`), é preciso editar esse arquivo e
+gerar um novo build — não tem mais como trocar em runtime pelo app.

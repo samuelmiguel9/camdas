@@ -5,16 +5,18 @@ partir do código-fonte, veja [README.md](README.md), seção "Rodando o app And
 
 ## Pré-requisitos
 
-- Celular Android (testado num Samsung Galaxy A15, Android recente — funciona a partir da API 21).
-- O arquivo `M12.apk` (build Release já assinado, gerado por quem administra o projeto).
-- Celular na **mesma rede Wi-Fi** do servidor da Api (ou acesso à rede da empresa por VPN) — o app
-  não funciona fora dessa rede, porque a Api roda dentro da intranet, sem exposição à internet.
+- Celular Android (testado num Samsung Galaxy A15 e num Galaxy Tab A, Android recente — funciona a
+  partir da API 23).
+- O arquivo `.apk` mais recente (build Release já assinado, nome real
+  `com.companyname.camdas.mobile-Signed.apk`, gerado por quem administra o projeto).
+- **Internet** (Wi-Fi ou dados móveis) — o app se conecta à Api publicada na nuvem (Render), não
+  precisa mais estar na mesma rede de nenhum servidor específico.
 
 ## 1. Permitir instalação de fontes desconhecidas
 
 Como o app não vem da Google Play, o Android bloqueia a instalação por padrão. Antes de instalar:
 
-1. Envie o `M12.apk` para o celular (cabo USB, link de download interno, WhatsApp/Drive — qualquer
+1. Envie o `.apk` para o celular (cabo USB, link de download interno, WhatsApp/Drive — qualquer
    meio que deixe o arquivo acessível no celular).
 2. Ao tocar no arquivo pra instalar, o Android vai pedir permissão pra "instalar apps desconhecidos"
    vindo do app usado pra abrir o `.apk` (Arquivos, Chrome, etc.) — toque em **Permitir** e depois em
@@ -22,46 +24,41 @@ Como o app não vem da Google Play, o Android bloqueia a instalação por padrã
    - Em alguns aparelhos Samsung isso fica em **Configurações → Apps → Acesso especial → Instalar
      apps desconhecidos**, selecionando o app usado pra abrir o arquivo.
 
-## 2. Primeira abertura — configurar o servidor
+## 2. Primeira abertura
 
-Na primeira vez que o app abre (ou sempre que troca de rede — casa/trabalho/cliente), ele tenta
-sozinho os endereços de servidor já salvos. Se nenhum responder, aparece uma tela pedindo:
+Não há nenhuma configuração de servidor para fazer — o app já vem com o endereço da Api (publicada
+no Render) embutido no próprio `.apk`. A tela de login pede direto o **Id do usuário** (um Guid) —
+peça ao administrador, já que ainda não existe cadastro de usuário pelo próprio app (ver
+`REVISAO_SEGURANCA.md`, item 2).
 
-1. **IP e porta do servidor**, no formato `192.168.0.50:5080` (pergunte ao administrador da rede
-   qual é o IP da máquina rodando a `BellucSketch.Api` nesse momento — pode mudar se a máquina reiniciar o
-   Wi-Fi, por exemplo).
-2. **Um nome pra esse endereço** (ex.: "Escritório", "Cliente X") — fica salvo pra da próxima vez o
-   app reconhecer sozinho essa rede.
-
-Depois disso, a tela de login pede o **Id do usuário** (um Guid) — peça ao administrador, já que
-ainda não existe cadastro de usuário pelo próprio app (ver `REVISAO_SEGURANCA.md`, item 2).
+> Se você usou uma versão bem antiga do app, talvez lembre de uma tela pedindo IP/porta do servidor
+> na primeira abertura — isso existia quando a Api rodava só na intranet da empresa e foi removido
+> depois que a Api passou a rodar na nuvem (não há mais "servidor da rede" pra configurar).
 
 ## 3. Atualizando para uma versão nova
 
-Basta repetir o passo 1 com o `M12.apk` novo — o Android substitui a instalação anterior sem apagar
-os dados salvos (endereços de servidor, sessão). Se o app não abrir mais depois de atualizar, veja
-a seção de problemas conhecidos abaixo antes de reinstalar do zero.
+Basta repetir o passo 1 com o `.apk` novo — o Android substitui a instalação anterior sem apagar os
+dados salvos (sessão). Se o app não abrir mais depois de atualizar, veja a seção de problemas
+conhecidos abaixo antes de reinstalar do zero. O app também avisa sozinho, na tela de Projetos,
+quando existe uma versão mais nova disponível (checagem automática contra os Releases do GitHub).
 
 ## Problemas conhecidos e como resolver
 
 - **App instala mas fecha sozinho ao abrir.** Só acontece se alguém tentar instalar um `.apk` de
-  build **Debug** em vez de Release — o `M12.apk` distribuído já é sempre Release, então isso não
+  build **Debug** em vez de Release — o `.apk` distribuído já é sempre Release, então isso não
   deveria acontecer com o arquivo oficial. Se acontecer mesmo assim, avise quem gerou o `.apk`.
 - **Erro ao entrar: `Java.Security.GeneralSecurityException`.** Bug conhecido do Android em alguns
   aparelhos (mais comum em Samsung) — a chave de armazenamento seguro do token fica inválida,
   geralmente depois de reinstalar o app várias vezes. Já corrigido nas versões atuais (o app limpa e
   recria a chave sozinho); se aparecer numa versão antiga, desinstale e instale de novo.
-- **Tela de login não sai do "Servidor não encontrado".** Confirme que o celular está na mesma rede
-  Wi-Fi do servidor, que a máquina do servidor está com a Api rodando (`dotnet run --project
-  src/BellucSketch.Api --urls http://0.0.0.0:5080`, não só `localhost`) e que a porta está liberada no
-  firewall do Windows daquela máquina.
-- **App abre e funciona, mas as imagens/plantas não carregam.** Geralmente é a Api ter reiniciado e
-  trocado de IP (ex.: outra rede Wi-Fi) — force o app a esquecer o endereço salvo removendo e
-  reinstalando, ou espere a próxima tentativa automática de resolução de endereço (acontece toda vez
-  que a tela de login aparece).
+- **App abre e funciona, mas as imagens/plantas não carregam.** Confirme que o celular tem internet
+  de verdade (não só conectado ao Wi-Fi sem sinal de rede). A Api roda no plano gratuito do Render,
+  que "dorme" depois de um tempo sem uso — a primeira chamada depois disso demora uns 30-60s pra
+  responder (ver `GUIA_DEPLOY_RENDER.md`), o que pode parecer trava na primeira tela depois de um
+  tempo sem abrir o app.
 
 ## Segurança
 
-O app se conecta à Api por HTTP simples (sem HTTPS) dentro da rede interna — não use fora de uma
-rede confiável (Wi-Fi público, por exemplo). Detalhes e recomendações em
-[REVISAO_SEGURANCA.md](REVISAO_SEGURANCA.md).
+O app se conecta à Api publicada no Render por **HTTPS** (certificado automático do Render) — funciona
+de qualquer rede com internet, não só dentro de uma rede confiável específica. Detalhes e
+recomendações em [REVISAO_SEGURANCA.md](REVISAO_SEGURANCA.md).

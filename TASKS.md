@@ -1,19 +1,18 @@
-# TASKS — Camdas
+# TASKS — BellucSketch
 
-Backlog organizado por fases, conforme roteiro definido no [PRD.md](PRD.md). Marque `[x]` ao concluir.
+Backlog organizado por fases. Marque `[x]` ao concluir.
 
 Legenda de status: `[ ]` pendente · `[~]` em andamento · `[x]` concluído
 
 ---
 
 ## Fase 0 — Fundamentos do repositório
-- [x] PRD.md com arquitetura, modelo de dados, fluxo e stack
 - [x] TASKS.md (este arquivo)
-- [x] `Camdas.sln` criada
+- [x] `BellucSketch.sln` criada
 - [x] `.gitignore` para projetos .NET/MAUI
 - [x] `README.md` com instruções de build/execução
 
-## Fase 1 — Camdas.Domain (regras de negócio puras) — **CONCLUÍDA**
+## Fase 1 — BellucSketch.Domain (regras de negócio puras) — **CONCLUÍDA**
 - [x] `Entity` base (Id, igualdade por identidade) em `Common/Entity.cs`
 - [x] `DomainException` (exceção específica para violação de regra de negócio)
 - [x] Enums: `TipoArquivoOrigem`, `StatusProjeto`, `TipoAcaoHistorico`
@@ -26,12 +25,12 @@ Legenda de status: `[ ]` pendente · `[~]` em andamento · `[x]` concluído
       acessíveis via `Planta`
 - [x] Entidade `HistoricoAlteracao` (construtor público — criada pela Aplicação, fora do agregado
       Planta) — log de auditoria genérico de ações sobre planta/camada
-- [x] Testes unitários (xUnit + FluentAssertions) em `tests/Camdas.Domain.Tests`: criação/remoção
+- [x] Testes unitários (xUnit + FluentAssertions) em `tests/BellucSketch.Domain.Tests`: criação/remoção
       de camada, bloqueio de camada impede editar imagem raster, reordenação com renumeração
       crescente
-- [x] Verificado: `dotnet build Camdas.sln` e `dotnet test tests/Camdas.Domain.Tests` — passando
+- [x] Verificado: `dotnet build BellucSketch.sln` e `dotnet test tests/BellucSketch.Domain.Tests` — passando
 
-## Fase 2 — Camdas.Application — **CONCLUÍDA**
+## Fase 2 — BellucSketch.Application — **CONCLUÍDA**
 - [x] Abstrações (ports): `IProjetoRepository`, `IPlantaRepository`, `IUsuarioRepository`,
       `IHistoricoRepository`, `IUnitOfWork`, `IArquivoStorage` (`SalvarAsync`/`AbrirAsync`),
       `IUsuarioContext`, `IClock`
@@ -44,17 +43,22 @@ Legenda de status: `[ ]` pendente · `[~]` em andamento · `[x]` concluído
 - [x] Casos de uso — Camadas: `CriarCamada`, `ReordenarCamadas`, `AlternarVisibilidadeCamada`,
       `BloquearCamada`, `DesbloquearCamada`, `AtualizarImagemCamada` (salva o traço raster),
       `ObterImagemCamada`
+  - Adicionados depois, sem entrada própria de fase na época (retroativamente listados aqui —
+    ver RELATORIO.md, Fase 11): `DefinirOpacidadeCamada`, `BloquearAlphaCamada`/
+    `DesbloquearAlphaCamada` (trava a transparência do traço já pintado, independente do bloqueio
+    normal), `DuplicarCamada` (copia nome/opacidade/visibilidade/traço para uma camada nova logo
+    abaixo), `LimparCamada` (esvazia o traço sem excluir a camada) e `RemoverCamada` (ver Fase 8.1)
 - [x] Caso de uso — Histórico: `ObterHistoricoDaPlanta`
 - [x] Validações (FluentValidation) nos comandos que recebem input externo
 - [x] `RecursoNaoEncontradoException` em `Common/` — a Api mapeia para HTTP 404
 - [x] Padrão MediatR (`IRequest`/`IRequestHandler`) — cada caso de uso é um arquivo único com
       Command/Query + Validator + Handler (vertical slice)
-- [x] Testes de aplicação (`tests/Camdas.Application.Tests`, NSubstitute) cobrindo caminho feliz e
+- [x] Testes de aplicação (`tests/BellucSketch.Application.Tests`, NSubstitute) cobrindo caminho feliz e
       propagação de `DomainException` (ex.: camada bloqueada) em atualização de imagem
-- [x] Verificado: `dotnet build Camdas.sln` e `dotnet test Camdas.sln` — passando
+- [x] Verificado: `dotnet build BellucSketch.sln` e `dotnet test BellucSketch.sln` — passando
 
-## Fase 3 — Camdas.Infrastructure — **CONCLUÍDA**
-- [x] `CamdasDbContext` (EF Core) + mapeamentos (Fluent API) para todas as entidades/VOs
+## Fase 3 — BellucSketch.Infrastructure — **CONCLUÍDA**
+- [x] `BellucSketchDbContext` (EF Core) + mapeamentos (Fluent API) para todas as entidades/VOs
   - `DbSet` só para os agregados raiz (`Projeto`, `Planta`) e para `HistoricoAlteracao` (entidade
     independente) — Camada é alcançada só via navegação de `Planta`
   - Coleção do agregado (`Camadas` em `Planta`) mapeada via backing field
@@ -67,7 +71,7 @@ Legenda de status: `[ ]` pendente · `[~]` em andamento · `[x]` concluído
 - [x] Provider: **PostgreSQL** (`Npgsql.EntityFrameworkCore.PostgreSQL`)
 - [x] Migration `InitialCreate` — 6 tabelas (`Projetos`, `Plantas`, `Camadas`, `Usuarios`,
       `HistoricoAlteracoes`, `__EFMigrationsHistory`)
-- [x] `CamdasDbContextFactory` (`IDesignTimeDbContextFactory`) — permite `dotnet ef` funcionar sem
+- [x] `BellucSketchDbContextFactory` (`IDesignTimeDbContextFactory`) — permite `dotnet ef` funcionar sem
       depender do projeto Api
 - [x] Repositórios concretos (`Repositories/`): `ProjetoRepositoryEfCore`, `PlantaRepositoryEfCore`
       (sempre carrega o agregado completo via `Include`), `UsuarioRepositoryEfCore`,
@@ -80,9 +84,9 @@ Legenda de status: `[ ]` pendente · `[~]` em andamento · `[x]` concluído
       `TipoArquivoOrigem == Pdf` (o arquivo salvo é sempre raster exibível)
 - [x] Testes de integração com **Sqlite** (motor relacional real, sem Docker) exercitando os
       repositórios concretos + `UnitOfWorkEfCore` fim a fim
-- [x] Verificado: `dotnet build Camdas.sln` e `dotnet test Camdas.sln` — passando
+- [x] Verificado: `dotnet build BellucSketch.sln` e `dotnet test BellucSketch.sln` — passando
 
-## Fase 4 — Camdas.Api — **CONCLUÍDA**
+## Fase 4 — BellucSketch.Api — **CONCLUÍDA**
 - [x] Configuração do host ASP.NET Core (`Program.cs`), DI de todas as camadas (Application +
       Infrastructure), `appsettings.json` (connection string, Jwt, diretório de armazenamento)
 - [x] Autenticação JWT via `[Authorize]` simples — qualquer usuário autenticado pode usar qualquer
@@ -100,9 +104,9 @@ Legenda de status: `[ ]` pendente · `[~]` em andamento · `[x]` concluído
 - [x] Middleware de tratamento de erros (`TratadorDeExcecoesGlobal : IExceptionHandler`) — mapeia
       `DomainException` → 400, `RecursoNaoEncontradoException` → 404, `FluentValidation.ValidationException`
       → 400 com detalhe por campo; qualquer outra exceção → 500 genérico
-- [x] `ValidationBehavior<TRequest,TResponse>` (pipeline do MediatR, em `Camdas.Application.Common`)
+- [x] `ValidationBehavior<TRequest,TResponse>` (pipeline do MediatR, em `BellucSketch.Application.Common`)
       roda os validadores FluentValidation antes de cada handler
-- [x] Testes de integração de endpoints (`tests/Camdas.Api.Tests`, `WebApplicationFactory` + Sqlite)
+- [x] Testes de integração de endpoints (`tests/BellucSketch.Api.Tests`, `WebApplicationFactory` + Sqlite)
       cobrindo o fluxo completo (login → projeto → planta → `GET arquivo` → criar camada →
       `PUT`/`GET imagem` de camada → histórico), 401 sem token, 404 recurso inexistente, 404 camada
       sem imagem
@@ -115,7 +119,7 @@ Legenda de status: `[ ]` pendente · `[~]` em andamento · `[x]` concluído
   marcava a nova `Cota` como `Modified`, não `Added` — por convenção, uma chave `Guid` "não vazia" é
   tratada como possivelmente já existente no banco (`ValueGeneratedOnAdd`). Corrigido configurando
   `ValueGenerated.Never` para a propriedade `Id` de toda entidade, globalmente, em
-  `CamdasDbContext.OnModelCreating` — já que nossos Ids são sempre gerados pela própria entidade
+  `BellucSketchDbContext.OnModelCreating` — já que nossos Ids são sempre gerados pela própria entidade
   (`Entity.Id`), nunca pelo banco.
 - **JWT: claim "sub" sumindo.** Por padrão, `JwtBearerHandler` remapeia claims curtas do JWT (como
   `sub`) para as URIs longas de `ClaimTypes` (`ClaimTypes.NameIdentifier`). `UsuarioContextHttp`
@@ -130,9 +134,9 @@ Legenda de status: `[ ]` pendente · `[~]` em andamento · `[x]` concluído
   `System.Text.Json` (usado no `[FromBody]`) não converte string→enum sem um conversor explícito.
   Corrigido registrando `JsonStringEnumConverter` em `AddControllers().AddJsonOptions(...)`.
 
-## Fase 5 — Camdas.Contracts — **CONCLUÍDA**
+## Fase 5 — BellucSketch.Contracts — **CONCLUÍDA**
 - [x] DTOs de request/response usados por `Api` e `Mobile` — projeto novo, só depende de
-      `Camdas.Domain` (entidades/enums, sem dependências)
+      `BellucSketch.Domain` (entidades/enums, sem dependências)
   - `ProjetoDto`, `PlantaDto`, `CamadaDto` (inclui `TemImagemRaster`, um flag em vez de expor o
     caminho de disco ao cliente), `HistoricoDto`, e o mapeador `Mapeamentos` (extension methods
     `ParaDto()`, `public` por ser usado entre assemblies)
@@ -146,18 +150,18 @@ Legenda de status: `[ ]` pendente · `[~]` em andamento · `[x]` concluído
       versão de contrato existe); adiado até haver motivo real para versionar
 - [x] Verificado: build e testes passando
 
-## Fase 6 — Camdas.Mobile (.NET MAUI / Android) — **CONCLUÍDA**
+## Fase 6 — BellucSketch.Mobile (.NET MAUI / Android) — **CONCLUÍDA**
 - [x] **Split em dois projetos** (feito ao perceber que um app MAUI "Exe" (`net8.0-android`) não
       pode ser referenciado por um projeto de teste comum):
-  - `Camdas.Mobile.Core` (`net8.0`, biblioteca "plain"): ViewModels, `IApiClient`/`ApiClient`,
+  - `BellucSketch.Mobile.Core` (`net8.0`, biblioteca "plain"): ViewModels, `IApiClient`/`ApiClient`,
     `ITokenStore` (interface), `PlantaOverlayRenderer` (SkiaSharp puro) — tudo testável em xUnit
     comum, sem Android/emulador
-  - `Camdas.Mobile` (`net8.0-android`, escafoldado com `dotnet new maui`): Views (XAML),
+  - `BellucSketch.Mobile` (`net8.0-android`, escafoldado com `dotnet new maui`): Views (XAML),
     `MauiProgram.cs`, `AppShell`, conversores XAML, `PlantaCanvasView` (toque/desenho, conecta o
     renderer do Core a um `SKCanvasView`), `TokenStoreSecureStorage` (implementação concreta usando
     `SecureStorage` do MAUI Essentials — só podia viver aqui, não no Core)
 - [x] Estrutura MVVM (CommunityToolkit.Mvvm — `[ObservableProperty]`/`[RelayCommand]`)
-- [x] Serviço HTTP (`ApiClient`) consumindo `Camdas.Api` via `Camdas.Contracts`, com
+- [x] Serviço HTTP (`ApiClient`) consumindo `BellucSketch.Api` via `BellucSketch.Contracts`, com
       `TokenAuthHandler` (anexa o Bearer token automaticamente) e `ConfiguracaoApi.BaseUrl`
       configurável (endereço da intranet/rede local)
 - [x] Tela de login (`LoginPage`/`LoginViewModel`) — usa o `POST /api/auth/dev-token`
@@ -175,14 +179,14 @@ Legenda de status: `[ ]` pendente · `[~]` em andamento · `[x]` concluído
       borracha, contra 24 no traço normal —, alternância apagar via `SKBlendMode.Clear`, "Limpar
       camada", "Salvar camada")
 - [x] Tela de histórico (`HistoricoPage`)
-- [x] Relatório de atualizações em PDF (`Camdas.Mobile.Core/Relatorios/`): changelog versionado
+- [x] Relatório de atualizações em PDF (`BellucSketch.Mobile.Core/Relatorios/`): changelog versionado
       (`HistoricoVersoes`, ordem crescente a partir de 1.0) renderizado com QuestPDF
       (`RelatorioPdfService`), aberto no visualizador padrão do Android via `Launcher`
-- [x] Testes de ViewModel, do renderer e do relatório PDF (`tests/Camdas.Mobile.Core.Tests`)
+- [x] Testes de ViewModel, do renderer e do relatório PDF (`tests/BellucSketch.Mobile.Core.Tests`)
 - [x] **Build real do APK Android verificado** (Android SDK + JDK instalados neste ambiente) — build
       **Release** assinado (`com.companyname.camdas.mobile-Signed.apk`), instalado e testado num
       Samsung Galaxy A15 físico via `adb install`
-- [x] Verificado: `dotnet test Camdas.sln` — passando
+- [x] Verificado: `dotnet test BellucSketch.sln` — passando
 
 ### Simplificações conscientes desta fase (não são bugs, são escopo deliberadamente reduzido)
 - **Sem undo por traço nem zoom/pan no canvas de desenho** — resolvido depois, ver "Backlog futuro"
@@ -246,7 +250,7 @@ Legenda de status: `[ ]` pendente · `[~]` em andamento · `[x]` concluído
       `app.UseSerilogRequestLogging()` loga cada requisição HTTP (método, rota, status, duração);
       `TratadorDeExcecoesGlobal` loga exceções — `Warning` para regra de negócio/validação (esperado,
       já tratado), `Error` com stack trace completo só para os 500 (erro realmente inesperado)
-- [x] Testes end-to-end do fluxo completo (`tests/Camdas.Api.Tests/PlantaFluxoCompletoTests.cs`):
+- [x] Testes end-to-end do fluxo completo (`tests/BellucSketch.Api.Tests/PlantaFluxoCompletoTests.cs`):
       importar planta → `GET arquivo` devolve os bytes salvos → adicionar cota → `PUT`/`GET imagem`
       de camada devolve exatamente o PNG enviado → histórico reflete a timeline na ordem certa
 - [x] Guia de deploy na intranet (IIS/serviço Windows/contêiner interno) —
@@ -260,8 +264,8 @@ Legenda de status: `[ ]` pendente · `[~]` em andamento · `[x]` concluído
       não existe neste ambiente — fica junto do guia de deploy, ainda pendente)
 
 ## Fase 8 — Limpeza e correções reportadas em teste no aparelho — **CONCLUÍDA**
-- [x] Removida por completo a entidade `Cota` (e `Ponto2D`/`Medida`/`UnidadeMedida`) — recurso da
-      versão antiga de ratificação, sem nenhum consumidor na UI atual. Removida em todas as camadas
+- [x] Removida por completo a entidade `Cota` (e `Ponto2D`/`Medida`/`UnidadeMedida`) — sem nenhum
+      consumidor na UI atual. Removida em todas as camadas
       (Domain/Application/Infrastructure/Api/Contracts/Mobile), migration recriada do zero (6
       tabelas em vez de 7)
 - [x] Apagados os arquivos de teste que só cobriam Cota/`ValueObjects`; os demais ajustados para as
@@ -276,7 +280,7 @@ Legenda de status: `[ ]` pendente · `[~]` em andamento · `[x]` concluído
 - [x] Relatório de atualizações em PDF, acessível por um botão no canto superior da aba Projetos,
       com changelog versionado a partir de 1.0 (dia/hora de cada atualização e bugs corrigidos em
       teste)
-- [x] Verificado: `dotnet build Camdas.sln` e `dotnet test Camdas.sln` — 62/62 testes passando
+- [x] Verificado: `dotnet build BellucSketch.sln` e `dotnet test BellucSketch.sln` — 62/62 testes passando
 
 ### Fase 8.1 — Correções reportadas após publicar a Api na nuvem (Render + Supabase)
 - [x] Excluir camada (Domain já tinha `Planta.RemoverCamada`; faltava o caso de uso
@@ -290,8 +294,106 @@ Legenda de status: `[ ]` pendente · `[~]` em andamento · `[x]` concluído
       selecionado não conta como mudança. Corrigido trocando por `TapGestureRecognizer` por item
       (mesmo padrão já usado na lista de camadas), que dispara sempre, em `ProjetosPage` e
       `PlantasDoProjetoPage`
-- [x] Verificado: `dotnet build Camdas.sln`, build do projeto Android e `dotnet test Camdas.sln` —
+- [x] Verificado: `dotnet build BellucSketch.sln`, build do projeto Android e `dotnet test BellucSketch.sln` —
       63/63 testes passando
+
+### Fase 8.2 — Fluxo de edição colaborativa (Web solicita, Android aprova)
+- [x] Novos casos de uso (`Application/EdicoesPendentes/`): `SolicitarEdicaoCamada`,
+      `ListarEdicoesPendentes`, `AprovarEdicaoCamada`, `RejeitarEdicaoCamada` — entidade
+      `EdicaoPendenteCamada` (status `Pendente|Aprovada|Rejeitada`) e enum
+      `TipoOperacaoEdicaoPendente` (visibilidade/opacidade/bloqueio/reordenar/excluir); endpoint
+      `EdicoesPendentesController` (`POST`/`GET .../edicoes-pendentes`, `POST .../aprovar`,
+      `POST .../rejeitar`)
+- [x] `IPlataformaEdicao` (porta client-side, sem equivalente na Api): decide se um tipo de operação
+      precisa de aprovação antes de aplicar. `PlataformaEdicaoDireta` (Mobile/Android, "mestre") —
+      sempre aplica direto, nunca pede aprovação. `PlataformaEdicaoWeb` (Blazor) — hoje só exige
+      aprovação para **excluir camada** (visibilidade/opacidade/bloqueio/ordem continuam livres na
+      Web, por não apagarem o traço); pede responsável/motivo via `prompt()` do navegador
+- [x] Tela `RevisaoEdicoesPage` no Mobile — lista as edições pendentes de uma planta, aprovar aplica
+      a mudança de verdade no mestre, rejeitar exige motivo
+- [x] Indicador visual (⏳) na Web (`Planta.razor`) na camada/planta com edição pendente
+- [x] Camada ganhou também: `Opacidade` (slider, `DefinirOpacidadeCamada`), `BloqueioAlpha`
+      (`BloquearAlphaCamada`/`DesbloquearAlphaCamada` — trava a transparência do traço já pintado,
+      independente do bloqueio normal) e `DuplicarCamada` (copia nome/opacidade/visibilidade/traço
+      para uma camada nova logo abaixo)
+- [ ] Sem teste automatizado novo para este fluxo (verificado manualmente Web ↔ Android) — considerar
+      cobertura de integração se o fluxo crescer
+
+## Fase 9 — Upgrade para SkiaSharp 3.x — **CONCLUÍDA**
+- [x] `SkiaSharp`/`SkiaSharp.Views.Maui.Controls` para 3.119.4 e `BellucSketch.Mobile` de
+      `net8.0-android` para `net9.0-android`
+- [x] Corrigidos 4 crashes nativos (SIGSEGV) só reproduzíveis em aparelho físico — detalhe completo
+      de cada um em [RELATORIO.md](RELATORIO.md), Fase 9 (superfície 0×0, bitmap liberado/inválido,
+      zoom alto estourando limite de memória do Android, hover da S Pen)
+- [ ] Sem teste automatizado novo (crashes nativos dependentes de timing/hardware, verificados
+      manualmente num Samsung Galaxy Tab A físico)
+
+## Fase 10 — Pan/zoom por gesto, ferramenta de ícones técnicos e limpeza de config obsoleta — **CONCLUÍDA**
+- [x] Traço com curva suave (Bézier quadrática), trava do traço/texto dentro dos limites da planta,
+      padrão pan/desenho invertido (toque só ajusta a visualização por padrão; um botão liga o
+      desenho) e zoom por pinça de dois dedos reimplementado sobre o toque bruto do SkiaSharp (ver
+      RELATORIO.md, Fase 10, para a "saga" de três iterações até funcionar de forma confiável)
+- [x] Resolução do PDF importado especificada em 300 DPI (antes usava o padrão da lib, baixo demais)
+- [x] Ferramenta de ícones técnicos (água fria/quente, esgoto, interruptor, ponto de gás, tomada
+      simples/dupla) — SVGs como `MauiAsset`, renderizados via `Svg.Skia`; ícone confirmado grava
+      sempre numa camada especial "Ícones" (criada automaticamente, olho sempre travado ligado) —
+      **limitação conhecida**: ícone não entra no desfazer/refazer (esse mecanismo só reconstrói a
+      camada ativa; corrigir um ícone errado hoje é girar/redimensionar antes de confirmar ou
+      "Limpar camada" na própria Ícones)
+- [x] Destaque visual da camada em edição na lista de camadas
+- [x] Configuração de servidor obsoleta removida (`ResolvedorEnderecoApi` e afins) —
+      `ConfiguracaoApi.BaseUrl` virou uma constante fixa apontando pro Render (ver Fase 8.1); o app
+      não pergunta mais IP/porta na primeira abertura
+- [ ] Sem teste automatizado novo — verificado manualmente num Samsung Galaxy Tab A físico
+- [~] **Pendência conhecida, ainda não corrigida**: `tests/BellucSketch.Mobile.Core.Tests/ViewModels/
+      PlantaViewModelTests.cs:102` referencia `PlantaViewModel.CamadaSelecionadaParaEdicao`,
+      propriedade renomeada em commit anterior para `CamadaEmEdicaoId` — quebra `dotnet build
+      BellucSketch.sln`/`dotnet test BellucSketch.sln` (a solução inteira), mesmo com
+      `BellucSketch.Mobile.csproj` isolado compilando limpo
+
+## Fase 11 — Ferramenta de seleção de cota (OCR) — **CONCLUÍDA**
+- [x] "Próximo passo combinado" ao fim da Fase 10 (ver RELATORIO.md) — implementada em sessão(ões)
+      não documentada(s) fase a fase no momento; primeira aparição no histórico de commits é junto do
+      rename para BellucSketch (Fase 12), então fica registrada retroativamente aqui
+- [x] Fluxo: usuário liga o modo cota (botão dedicado, desliga pan) e arrasta um retângulo sobre o
+      número impresso na planta (`PlantaCanvasView.ModoSelecaoCota`/`GerenciarSelecaoCota`) → recorta
+      a composição nativa daquela área → detecta cor de fundo e a área de tinta do texto
+      (`DetectarCorDeFundo`/`DetectarAreaTexto`, mantendo de fora pixels vermelhos — linha de cota —
+      da máscara de cobertura, pedido explícito do usuário) → `OcrTextoService.ReconhecerAsync`
+      (Google ML Kit Text Recognition, modelo "Bundled" embutido no apk, funciona offline) reconhece
+      o texto → prompt nativo mostra o texto reconhecido, editável → confirmando, cria um texto
+      pendente (mesma barra de posicionar/girar/A-/A+/confirmar/cancelar da ferramenta de texto) já
+      com a máscara de cobertura do número original anexada (`AreaCobertura`/`MascaraCobertura` em
+      `AcaoTexto`) e cor vermelha se o usuário editou o valor reconhecido (preta se manteve)
+- [x] Cobertura via máscara pixel-a-pixel (não um retângulo cheio) — ver bug corrigido na Fase 12
+      (reedição vazava o número original de volta)
+- [ ] Sem teste automatizado (depende de ML Kit/Android real) — verificado manualmente no aparelho
+
+## Fase 12 — Rebranding para BellucSketch, correção de vazamento de storage e ajustes de UX (2026-07-23) — **CONCLUÍDA**
+- [x] Projeto inteiro renomeado de Camdas para **BellucSketch** — solução, namespaces, pastas
+      `src`/`tests`, ícone do app, telas de fundo (login/projetos/plantas). `ApplicationId`
+      (`com.companyname.camdas.mobile`) e a chave `ConnectionStrings:Camdas`/nomes dos serviços no
+      Render (`camdas-api`/`camdas-web`) deliberadamente **não** renomeados (ver comentários em
+      `render.yaml`/`Program.cs` — reinstalação forçada e segredo `sync: false` já preenchido
+      manualmente no painel, respectivamente)
+- [x] Corrigido vazamento de arquivos órfãos no Supabase Storage: `IArquivoStorage.ExcluirAsync`
+      (novo) chamado ao salvar nova imagem de camada, limpar camada, remover camada e remover planta
+      — antes, cada "Salvar camada" deixava o arquivo anterior perdido no bucket para sempre
+- [x] Removida a transição de splash (`MauiSplashScreen`) — o card de marca já é fundo persistente
+      das telas principais, uma splash separada era redundante
+- [x] Cobertura de texto/cota na reedição: `ApagarTextoDoBitmap`/`IniciarEdicaoTextoColocado`
+      corrigidos para não perder a máscara de cobertura ao reeditar um texto já colocado — o número
+      original impresso na planta só volta a aparecer via desfazer (↶), nunca reabrindo o texto pra
+      editar
+- [x] Arrastar texto/ícone pendente até uma lixeira flutuante para excluir (antes só dava pra
+      confirmar/cancelar a posição)
+- [x] Rastro da borracha na prévia ao vivo deixou de ficar preto (era `BlendMode.Clear` sem nada por
+      baixo na superfície já composta) — agora mostra um traço branco translúcido só como indicador
+- [x] Exclusividade real entre ferramentas (lápis/texto/cota desligam a borracha ao serem
+      selecionadas, e vice-versa)
+- [x] Verificado: build completo da solução (`dotnet build BellucSketch.sln`) e do app Android
+      (`-f net9.0-android -c Release`) limpos, exceto a pendência já conhecida da Fase 10
+      (`PlantaViewModelTests.cs`); instalado e testado num Samsung Galaxy Tab A físico
 
 ---
 
@@ -299,10 +401,11 @@ Legenda de status: `[ ]` pendente · `[~]` em andamento · `[x]` concluído
 - [ ] Login por credencial de verdade (hash de senha) — o `dev-token` é só placeholder de dev/teste
 - [ ] Importação/edição nativa de DWG/DXF
 - [ ] Modo offline com fila de sincronização
-- [ ] Undo por traço (não só "limpar camada" inteira) — implementado e depois **revertido a pedido**
-      (só "Limpar camada" inteira, como era antes)
-- [x] Zoom/pan no canvas de desenho e suporte a manter a proporção do traço entre resoluções de
-      dispositivo diferentes — `PlantaCanvasView.UsarResolucaoNativa` (novo): quando ligado (Planta
-      Page e CamadaEdicaoPage), o bitmap de cada camada é criado no tamanho nativo da imagem base,
-      não mais no tamanho da tela; `Zoom` só controla a apresentação (`canvas.Scale`) dentro de um
-      `ScrollView`, sem afetar a resolução onde o traço é armazenado
+- [x] Undo por traço (não só "limpar camada" inteira) — teve idas e vindas (implementado, revertido a
+      pedido, reimplementado) em commits não documentados fase a fase; **estado atual**: `Desfazer`/
+      `Refazer` (↶/↷) funcionam para traço e texto/cota (`PlantaCanvasView._historico`/`_desfeitas`),
+      mas **não** para ícone (ver Fase 10 — grava direto e permanente, fora desse histórico)
+- [x] Zoom/pan no canvas de desenho mantendo a resolução nativa do traço — implementado nesta forma
+      (bitmap por camada no tamanho nativo + `ScrollView`) e depois **substituído** na Fase 10 por
+      canvas de tamanho fixo com `PanX`/`PanY` e zoom por pinça, sem `ScrollView` (o mecanismo antigo
+      não convivia bem com o gesto de 2 dedos — ver Fase 10 acima)
